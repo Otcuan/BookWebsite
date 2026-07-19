@@ -12,6 +12,7 @@ Bạn đọc -> content route -> presigned GET 5 phút -> R2 private
 Tuấn -> HttpOnly owner session -> upload reservation
       -> PDF.js trong trình duyệt render trang 1 thành ảnh (nếu không chọn bìa)
       -> presigned PUT sách/bìa 5 phút -> R2 -> finalize -> D1 publish
+Tuấn -> xác nhận đúng tên sách -> owner-only DELETE -> R2 + D1 + quota + audit
 ```
 
 Upload đi thẳng từ trình duyệt đến R2 vì Vercel Functions giới hạn payload
@@ -29,6 +30,9 @@ upload là bước nâng cấp sau MVP. Chi tiết và trade-off ở `docs/verce
 - Owner passphrase được băm PBKDF2-HMAC-SHA256, 600.000 vòng; không lưu plaintext.
 - Cookie `__Host-library_owner`: `Secure`, `HttpOnly`, `SameSite=Strict`, hết hạn 8 giờ.
 - API ghi yêu cầu owner session + same-origin; login và upload có D1 rate limit.
+- Xóa sách yêu cầu nhập đúng tiêu đề, owner session, same-origin và rate limit;
+  hệ thống xóa file/ảnh bìa R2, cập nhật quota và D1 trong luồng có audit. Nếu
+  cloud gián đoạn, sách được ẩn và hiện lại cho Admin dưới trạng thái chờ xóa.
 - PDF/TXT và JPG/PNG/WebP được kiểm tra ở client; finalize kiểm tra size, MIME và
   signature prefix ở R2. SVG không được chấp nhận.
 - PDF.js chạy bằng Web Worker cùng origin, chỉ render trang 1 vào canvas và mã hóa
@@ -70,7 +74,8 @@ Nếu D1 đã có migration `0000` và `0001`, chạy riêng nội dung
 `drizzle/0002_amazing_whizzer.sql` **trước** khi deploy code mới. Migration này
 chỉ thêm metadata ảnh bìa và backfill kích thước reservation; không xóa sách cũ.
 Tính năng tự lấy trang đầu PDF không cần migration hay Environment Variable mới,
-và không cần đổi R2 CORS ngoài cấu hình đã dùng cho ảnh bìa.
+và không cần đổi R2 CORS ngoài cấu hình đã dùng cho ảnh bìa. Nút xóa sách cũng
+không cần migration hoặc Environment Variable mới.
 
 ## Tạo owner secret
 
@@ -112,7 +117,8 @@ npm test
 ```
 
 Test bao gồm build production, file signature/UTF-8, CSRF fail-closed, migration,
-hard quota, cost budget, security headers/CORS và việc đóng gói PDF.js worker/font.
+hard quota, cost budget, security headers/CORS, đóng gói PDF.js worker/font và
+luồng xóa/cascade/cập nhật dung lượng.
 
 ## Giới hạn và chi phí
 
@@ -128,6 +134,7 @@ hard quota, cost budget, security headers/CORS và việc đóng gói PDF.js wor
   nhiều bộ nhớ trên điện thoại cũ, vì vậy nên quản trị bằng desktop.
 - Guard trong ứng dụng giảm nguy cơ vượt free tier nhưng không thể cam kết `$0`
   tuyệt đối khi pricing/quota của nhà cung cấp thay đổi. Bật usage/billing alert.
-- Chưa có UI xóa sách, note/bookmark và backup automation. Backup chỉ được coi
-  hợp lệ sau một lần restore D1/R2 thành công.
+- Xóa vĩnh viễn file R2 không thể hoàn tác; phải tải bản sao về máy trước nếu cần.
+- Chưa có UI note/bookmark và backup automation. Backup chỉ được coi hợp lệ sau
+  một lần restore D1/R2 thành công.
 - Chỉ upload sách bạn có quyền lưu trữ và chia sẻ.

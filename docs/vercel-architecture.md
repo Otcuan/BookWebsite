@@ -24,6 +24,12 @@ Owner browser
   -> presigned R2 PUT for book + generated/manual cover (browser uploads directly)
   -> finalize endpoint validates both R2 objects' metadata/signature prefix
   -> D1 batch publishes book and commits quota
+
+Owner delete
+  -> exact-title confirmation + owner session + same-origin + rate limit
+  -> tombstone hides the book from public readers
+  -> R2 deletes the book and optional cover
+  -> D1 batch releases committed quota, deletes metadata and writes audit log
 ```
 
 ## Why the upload is direct to R2
@@ -91,6 +97,8 @@ to the browser or committed to Git.
   memory-intensive on older mobile devices. Desktop administration is preferred.
 - Automatic covers apply only to new uploads; existing coverless records are not
   mutated by this release.
+- Permanent R2 deletion cannot be undone. If R2 or D1 fails mid-flow, the
+  tombstoned record remains visible only to the owner for an idempotent retry.
 - Image validation is signature-based rather than full decoder sandboxing;
   upload remains owner-only and the 3 MiB limit reduces residual risk.
 - D1 REST adds network latency compared with a Worker binding.
