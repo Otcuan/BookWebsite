@@ -48,6 +48,10 @@ export function LibraryDashboard({
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadNotice, setUploadNotice] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<LibraryBook | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteNotice, setDeleteNotice] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -83,9 +87,13 @@ export function LibraryDashboard({
     );
   }, [books, query, sort]);
 
-  const continueBooks = useMemo(
-    () => [...books].filter((book) => book.progress > 0).slice(0, 3),
+  const activeBooks = useMemo(
+    () => books.filter((book) => !book.deletionPending),
     [books],
+  );
+  const continueBooks = useMemo(
+    () => activeBooks.filter((book) => book.progress > 0).slice(0, 3),
+    [activeBooks],
   );
   const quotaPercent = Math.min(
     100,
@@ -223,6 +231,69 @@ export function LibraryDashboard({
     if (response.ok) window.location.assign("/");
   }
 
+  function openDeleteDialog(book: LibraryBook) {
+    setDeleteTarget(book);
+    setDeleteConfirmation("");
+    setDeleteNotice("");
+  }
+
+  function closeDeleteDialog() {
+    if (deleting) return;
+    setDeleteTarget(null);
+    setDeleteConfirmation("");
+    setDeleteNotice("");
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget || deleteConfirmation !== deleteTarget.title) return;
+    setDeleting(true);
+    setDeleteNotice("Đang xóa tệp sách và ảnh bìa khỏi R2…");
+
+    try {
+      const response = await fetch(
+        `/api/v1/books/${encodeURIComponent(deleteTarget.id)}`,
+        { method: "DELETE", credentials: "same-origin" },
+      );
+      const payload = (await response.json()) as {
+        data?: {
+          id: string;
+          freedBytes: number;
+          storage: StorageStats;
+        };
+        error?: {
+          message?: string;
+          details?: { deletionPending?: number };
+        };
+      };
+
+      if (!response.ok || !payload.data) {
+        if (payload.error?.details?.deletionPending === 1) {
+          setBooks((current) => current.map((book) =>
+            book.id === deleteTarget.id
+              ? { ...book, coverUrl: null, deletionPending: true }
+              : book,
+          ));
+          setDeleteTarget((current) => current
+            ? { ...current, coverUrl: null, deletionPending: true }
+            : current,
+          );
+        }
+        throw new Error(payload.error?.message ?? "Không thể xóa sách.");
+      }
+
+      setBooks((current) => current.filter((book) => book.id !== payload.data!.id));
+      setStorage(payload.data.storage);
+      localStorage.removeItem(`reading-progress:${payload.data.id}`);
+      setDeleteTarget(null);
+      setDeleteConfirmation("");
+      setDeleteNotice("");
+    } catch (error) {
+      setDeleteNotice(error instanceof Error ? error.message : "Không thể xóa sách.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <main className="library-shell">
       <header className="topbar">
@@ -291,9 +362,9 @@ export function LibraryDashboard({
                 {currentDate}
               </time>
             </div>
-            <div className="library-stat" aria-label={`Thư viện có ${books.length} cuốn`}>
+            <div className="library-stat" aria-label={`Thư viện có ${activeBooks.length} cuốn`}>
               <span aria-hidden="true">▥</span>
-              <strong>{books.length} cuốn</strong>
+              <strong>{activeBooks.length} cuốn</strong>
               <i>·</i>
               <span>{formatBytes(storage.committedBytes)}</span>
             </div>
@@ -383,16 +454,53 @@ export function LibraryDashboard({
 
           {visibleBooks.length > 0 ? (
             <div className={`book-collection ${view}`}>
-              {visibleBooks.map((book) => (
-                <a className="book-tile" href={`/books/${book.id}`} key={book.id}>
-                  <BookCover coverUrl={book.coverUrl} tone={coverTone(book.id)} title={book.title} />
-                  <div className="book-meta">
-                    <h3>{book.title}</h3>
-                    <p>{book.author}</p>
-                    <span>{book.format} · {formatBytes(book.sizeBytes)}</span>
-                  </div>
-                </a>
-              ))}
+              {visibleBooks.map((book) => {
+                const tileContent = (
+                  <>
+                    <BookCover
+                      coverUrl={book.coverUrl}
+                      tone={coverTone(book.id)}
+                      title={book.title}
+                    />
+                    <div className="book-meta">
+                      <h3>{book.title}</h3>
+                      <p>{book.author}</p>
+                      <span>{book.format} · {formatBytes(book.sizeBytes)}</span>
+                    </div>
+                  </>
+                );
+
+                return (
+                  <article
+                    className={`book-tile${book.deletionPending ? " deletion-pending" : ""}`}
+                    key={book.id}
+                  >
+                    {book.deletionPending ? (
+                      <div aria-disabled="true" className="book-tile-link">
+                        {tileContent}
+                      </div>
+                    ) : (
+                      <a className="book-tile-link" href={`/books/${book.id}`}>
+                        {tileContent}
+                      </a>
+                    )}
+                    {book.deletionPending && (
+                      <span className="deletion-badge">Đang chờ xóa</span>
+                    )}
+                    {viewer.isOwner && (
+                      <button
+                        aria-label={`${book.deletionPending ? "Thử xóa lại" : "Xóa"} sách ${book.title}`}
+                        className="book-delete-button"
+                        onClick={() => openDeleteDialog(book)}
+                        title={book.deletionPending ? "Thử xóa lại" : "Xóa sách"}
+                        type="button"
+                      >
+                        <span aria-hidden="true">⌫</span>
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
             </div>
           ) : (
             <div className="empty-state">
@@ -465,6 +573,74 @@ export function LibraryDashboard({
                 {uploading ? "Đang kiểm tra…" : "Kiểm tra và tải lên"}
               </button>
             </form>
+          </section>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={closeDeleteDialog}
+        >
+          <section
+            aria-describedby="delete-description"
+            aria-labelledby="delete-title"
+            aria-modal="true"
+            className="delete-modal"
+            role="dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <p className="section-kicker">Chỉ chủ thư viện</p>
+                <h2 id="delete-title">
+                  {deleteTarget.deletionPending ? "Thử xóa lại?" : "Xóa vĩnh viễn?"}
+                </h2>
+              </div>
+              <button
+                aria-label="Đóng"
+                disabled={deleting}
+                onClick={closeDeleteDialog}
+                type="button"
+              >×</button>
+            </div>
+            <p id="delete-description" className="delete-warning">
+              PDF/TXT, ảnh bìa và metadata của <strong>{deleteTarget.title}</strong> sẽ bị
+              xóa khỏi R2 và D1. Thao tác này không thể hoàn tác.
+            </p>
+            {deleteTarget.deletionPending && (
+              <p className="pending-warning">
+                Lần xóa trước chưa hoàn tất. Sách hiện đã được ẩn với bạn đọc;
+                hãy xác nhận để hệ thống dọn phần còn lại.
+              </p>
+            )}
+            <label className="delete-confirmation-label">
+              Nhập chính xác tên sách để xác nhận
+              <input
+                autoComplete="off"
+                autoFocus
+                disabled={deleting}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                placeholder={deleteTarget.title}
+                type="text"
+                value={deleteConfirmation}
+              />
+            </label>
+            {deleteNotice && <p className="delete-notice" role="status">{deleteNotice}</p>}
+            <div className="delete-actions">
+              <button disabled={deleting} onClick={closeDeleteDialog} type="button">
+                Hủy
+              </button>
+              <button
+                className="confirm-delete-button"
+                disabled={deleting || deleteConfirmation !== deleteTarget.title}
+                onClick={confirmDelete}
+                type="button"
+              >
+                {deleting ? "Đang xóa…" : "Xóa vĩnh viễn"}
+              </button>
+            </div>
           </section>
         </div>
       )}

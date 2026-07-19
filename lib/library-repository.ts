@@ -33,6 +33,7 @@ export type LibraryBook = {
   locator: string | null;
   progressVersion: number;
   updatedAt: string;
+  deletionPending: boolean;
 };
 
 export type StorageStats = {
@@ -60,6 +61,16 @@ type BookRow = {
   cover_object_key: string | null;
   cover_size_bytes: number | null;
   updated_at: string;
+  deleted_at: string | null;
+};
+
+type DeletableBookRow = {
+  id: string;
+  title: string;
+  object_key: string;
+  cover_object_key: string | null;
+  size_bytes: number;
+  cover_size_bytes: number | null;
 };
 
 type ReservationRow = {
@@ -87,22 +98,28 @@ export class StorageQuotaError extends Error {}
 export class FreeTierBudgetError extends Error {}
 export class UploadReservationError extends Error {}
 export class UploadedObjectError extends Error {}
+export class BookNotFoundError extends Error {}
+export class BookDeletionPendingError extends Error {}
 
-export async function listPublishedBooks(query = ""): Promise<LibraryBook[]> {
+export async function listPublishedBooks(
+  query = "",
+  options: { includeDeletionPending?: boolean } = {},
+): Promise<LibraryBook[]> {
   const DB = getDatabase();
   const search = `%${escapeLike(query.trim().toLowerCase())}%`;
   const result = await DB.prepare(
     `SELECT id, slug, title, author, description, format,
-            mime_type, size_bytes, cover_object_key, cover_size_bytes, updated_at
+            mime_type, size_bytes, cover_object_key, cover_size_bytes,
+            updated_at, deleted_at
      FROM books
      WHERE status = 'published'
-       AND deleted_at IS NULL
+       AND (deleted_at IS NULL OR ? = 1)
        AND (? = '%%' OR lower(title) LIKE ? ESCAPE '\\'
             OR lower(author) LIKE ? ESCAPE '\\')
      ORDER BY updated_at DESC
      LIMIT 200`,
   )
-    .bind(search, search, search)
+    .bind(options.includeDeletionPending ? 1 : 0, search, search, search)
     .all<BookRow>();
 
   return (result.results ?? []).map(mapBookRow);
@@ -112,7 +129,8 @@ export async function getPublishedBook(bookId: string): Promise<LibraryBook | nu
   const DB = getDatabase();
   const row = await DB.prepare(
     `SELECT id, slug, title, author, description, format,
-            mime_type, size_bytes, cover_object_key, cover_size_bytes, updated_at
+            mime_type, size_bytes, cover_object_key, cover_size_bytes,
+            updated_at, deleted_at
      FROM books
      WHERE id = ? AND status = 'published' AND deleted_at IS NULL
      LIMIT 1`,
@@ -138,6 +156,112 @@ export async function getStorageStats(): Promise<StorageStats> {
     committedBytes: row.committed_bytes,
     reservedBytes: row.reserved_bytes,
     hardLimitBytes: row.hard_limit_bytes,
+  };
+}
+
+export async function deleteBookPermanently(input: {
+  viewer: Viewer;
+  bookId: string;
+  requestId: string;
+}): Promise<{
+  id: string;
+  title: string;
+  freedBytes: number;
+  storage: StorageStats;
+}> {
+  const DB = getDatabase();
+  const book = await DB.prepare(
+    `UPDATE books
+     SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND status = 'published'
+     RETURNING id, title, object_key, cover_object_key,
+               size_bytes, cover_size_bytes`,
+  )
+    .bind(input.bookId)
+    .first<DeletableBookRow>();
+
+  if (!book) {
+    throw new BookNotFoundError("Không tìm thấy sách cần xóa.");
+  }
+
+  const objectKeys = [book.cover_object_key, book.object_key].filter(
+    (key): key is string => Boolean(key),
+  );
+  const objectDeletions = await Promise.allSettled(
+    objectKeys.map((objectKey) => deleteR2Object(objectKey)),
+  );
+  const failedObjects = objectDeletions.filter(
+    (result) => result.status === "rejected",
+  ).length;
+
+  if (failedObjects > 0) {
+    await writeAudit(DB, {
+      actorEmail: input.viewer.email,
+      action: "book.delete",
+      targetType: "book",
+      targetId: book.id,
+      outcome: "failure",
+      requestId: input.requestId,
+      metadata: { failedObjects, deletionPending: 1 },
+    }).catch(() => undefined);
+    throw new BookDeletionPendingError(
+      "Sách đã được ẩn nhưng chưa xóa hết tệp khỏi R2. Hãy thử lại.",
+    );
+  }
+
+  const storageBytes = book.size_bytes + (book.cover_size_bytes ?? 0);
+  let freedBytes = 0;
+  try {
+    const results = await DB.batch([
+      DB.prepare(
+        `UPDATE storage_usage
+         SET committed_bytes = MAX(0, committed_bytes - ?),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = 1
+           AND EXISTS (SELECT 1 FROM books
+                       WHERE id = ? AND deleted_at IS NOT NULL)`,
+      ).bind(storageBytes, book.id),
+      DB.prepare(
+        `DELETE FROM upload_reservations WHERE book_id = ?`,
+      ).bind(book.id),
+      DB.prepare(
+        `DELETE FROM books WHERE id = ? AND deleted_at IS NOT NULL`,
+      ).bind(book.id),
+      auditStatement(DB, {
+        actorEmail: input.viewer.email,
+        action: "book.delete",
+        targetType: "book",
+        targetId: book.id,
+        outcome: "success",
+        requestId: input.requestId,
+        metadata: {
+          storageBytes,
+          coverDeleted: book.cover_object_key ? 1 : 0,
+        },
+      }),
+    ]);
+    freedBytes = (results[2]?.meta.changes ?? 0) === 1 ? storageBytes : 0;
+  } catch {
+    await writeAudit(DB, {
+      actorEmail: input.viewer.email,
+      action: "book.delete",
+      targetType: "book",
+      targetId: book.id,
+      outcome: "failure",
+      requestId: input.requestId,
+      metadata: { databaseFinalizeFailed: 1, deletionPending: 1 },
+    }).catch(() => undefined);
+    throw new BookDeletionPendingError(
+      "Tệp đã được xóa nhưng D1 chưa hoàn tất cập nhật. Hãy thử lại.",
+    );
+  }
+
+  return {
+    id: book.id,
+    title: book.title,
+    freedBytes,
+    storage: await getStorageStats(),
   };
 }
 
@@ -392,6 +516,7 @@ export async function finalizeUpload(input: {
     locator: null,
     progressVersion: 0,
     updatedAt: new Date().toISOString(),
+    deletionPending: false,
   };
 }
 
@@ -711,6 +836,7 @@ function auditStatement(
 }
 
 function mapBookRow(row: BookRow): LibraryBook {
+  const deletionPending = row.deleted_at !== null;
   return {
     id: row.id,
     slug: row.slug,
@@ -720,13 +846,16 @@ function mapBookRow(row: BookRow): LibraryBook {
     format: row.format.toUpperCase() as "PDF" | "TXT",
     mimeType: row.mime_type,
     sizeBytes: row.size_bytes,
-    coverUrl: row.cover_object_key ? `/api/v1/books/${row.id}/cover` : null,
+    coverUrl: row.cover_object_key && !deletionPending
+      ? `/api/v1/books/${row.id}/cover`
+      : null,
     coverSizeBytes: row.cover_size_bytes ?? 0,
     storageBytes: row.size_bytes + (row.cover_size_bytes ?? 0),
     progress: 0,
     locator: null,
     progressVersion: 0,
     updatedAt: row.updated_at,
+    deletionPending,
   };
 }
 

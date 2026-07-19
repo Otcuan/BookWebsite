@@ -26,7 +26,7 @@ export default async function Home() {
   if (isRuntimeConfigured()) {
     try {
       [books, storage] = await Promise.all([
-        listPublishedBooks(),
+        listPublishedBooks("", { includeDeletionPending: viewer.isOwner }),
         getStorageStats(),
       ]);
     } catch {
