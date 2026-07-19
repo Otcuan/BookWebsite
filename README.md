@@ -9,6 +9,7 @@ Cloudflare D1; sách và ảnh bìa nằm trong R2 private bucket.
 ```text
 Bạn đọc -> Vercel / Next.js -> D1 REST (danh mục)
 Bạn đọc -> content route -> presigned GET 5 phút -> R2 private
+         -> PDF.js tải theo Range và chỉ render trang hiện tại vào canvas
 Tuấn -> HttpOnly owner session -> upload reservation
       -> PDF.js trong trình duyệt render trang 1 thành ảnh (nếu không chọn bìa)
       -> presigned PUT sách/bìa 5 phút -> R2 -> finalize -> D1 publish
@@ -23,8 +24,10 @@ upload là bước nâng cấp sau MVP. Chi tiết và trade-off ở `docs/verce
 ## Chức năng và ranh giới bảo mật
 
 - Catalog responsive có bìa tự tạo từ trang đầu PDF, quote đổi theo lượt mở trang,
-  đồng hồ Việt Nam, tìm kiếm/sắp xếp, PDF viewer và TXT reader. Ảnh JPG/PNG/WebP
-  chọn thủ công là tùy chọn ghi đè; TXT dùng bìa minh họa mặc định.
+  đồng hồ Việt Nam và tìm kiếm/sắp xếp. Trình đọc PDF theo từng trang có nút
+  trước/sau, nhập số trang, zoom, phím mũi tên và vuốt ngang trên mobile; TXT có
+  cỡ chữ, giãn dòng và theme. Ảnh JPG/PNG/WebP chọn thủ công là tùy chọn ghi đè;
+  TXT dùng bìa minh họa mặc định.
 - Nguồn và ghi chú bản dịch quote nằm tại `docs/quote-sources.md`.
 - Tiến độ đọc lưu trong `localStorage` của từng thiết bị; không phải danh tính.
 - Owner passphrase được băm PBKDF2-HMAC-SHA256, 600.000 vòng; không lưu plaintext.
@@ -35,9 +38,13 @@ upload là bước nâng cấp sau MVP. Chi tiết và trade-off ở `docs/verce
   cloud gián đoạn, sách được ẩn và hiện lại cho Admin dưới trạng thái chờ xóa.
 - PDF/TXT và JPG/PNG/WebP được kiểm tra ở client; finalize kiểm tra size, MIME và
   signature prefix ở R2. SVG không được chấp nhận.
-- PDF.js chạy bằng Web Worker cùng origin, chỉ render trang 1 vào canvas và mã hóa
-  lại thành WebP/JPEG; annotation và XFA bị tắt. Không tải mã từ CDN bên thứ ba.
+- PDF.js chạy bằng Web Worker cùng origin. Luồng tạo bìa chỉ render trang 1 và
+  mã hóa lại thành WebP/JPEG; luồng đọc chỉ render trang hiện tại, hủy render cũ
+  khi đổi trang và giới hạn số pixel canvas. Annotation và XFA bị tắt; không tải
+  mã từ CDN bên thứ ba.
 - R2 private, URL GET/PUT ký ngắn hạn; CSP và R2 CORS giới hạn origin.
+- Bạn đọc không nhận thống kê dung lượng R2 trong HTML hoặc API catalog công khai;
+  quota chỉ được truy vấn và hiển thị khi phiên owner hợp lệ.
 - D1 CHECK constraint giữ tổng committed + reserved không quá `9,000,000,000` byte.
 - Circuit breaker ứng dụng: 5.000 Class A và 100.000 Class B/tháng.
 - API lỗi nhất quán, không trả stack trace, token hoặc khóa storage.
@@ -74,8 +81,15 @@ Nếu D1 đã có migration `0000` và `0001`, chạy riêng nội dung
 `drizzle/0002_amazing_whizzer.sql` **trước** khi deploy code mới. Migration này
 chỉ thêm metadata ảnh bìa và backfill kích thước reservation; không xóa sách cũ.
 Tính năng tự lấy trang đầu PDF không cần migration hay Environment Variable mới,
-và không cần đổi R2 CORS ngoài cấu hình đã dùng cho ảnh bìa. Nút xóa sách cũng
-không cần migration hoặc Environment Variable mới.
+và nút xóa sách cũng không cần Environment Variable mới.
+
+### Cập nhật trình đọc mobile cho kho đang chạy
+
+Không cần migration D1 hoặc Environment Variable mới. Tuy nhiên phải áp dụng lại
+toàn bộ `infrastructure/r2-cors.json` trong R2 > bucket > Settings > CORS Policy
+sau khi thay URL mẫu bằng đúng URL Vercel Production. Cấu hình mới cho phép
+request header `Range` và cho trình duyệt đọc `Accept-Ranges`, `Content-Range`,
+`Content-Length`; thiếu bước này PDF có thể không mở hoặc phải tải cả tệp.
 
 ## Tạo owner secret
 
@@ -118,7 +132,9 @@ npm test
 
 Test bao gồm build production, file signature/UTF-8, CSRF fail-closed, migration,
 hard quota, cost budget, security headers/CORS, đóng gói PDF.js worker/font và
-luồng xóa/cascade/cập nhật dung lượng.
+luồng xóa/cascade/cập nhật dung lượng. Test trình đọc còn kiểm tra không dùng
+`iframe`, chỉ render theo trang, có giới hạn canvas, tắt annotation/XFA và không
+lộ quota qua catalog public.
 
 ## Giới hạn và chi phí
 
@@ -130,8 +146,10 @@ luồng xóa/cascade/cập nhật dung lượng.
   máy trước khi upload; không mở upload cho bạn bè nếu chưa có quarantine + AV.
 - Bìa tự động chỉ áp dụng khi upload PDF mới. Sách cũ không có bìa cần được tải
   lại; PDF hỏng hoặc có mật khẩu sẽ dùng bìa mặc định và không chặn việc upload.
-- Việc đọc PDF và tạo bìa diễn ra trên máy chủ kho; tệp gần 100 MiB có thể dùng
-  nhiều bộ nhớ trên điện thoại cũ, vì vậy nên quản trị bằng desktop.
+- Việc đọc PDF diễn ra trong trình duyệt. Trình đọc dùng HTTP Range, tắt prefetch
+  toàn tệp và chỉ render một trang để giảm RAM; một số PDF có cấu trúc bất thường
+  vẫn có thể cần tải thêm nhiều đoạn. Luồng tạo bìa của tệp gần 100 MiB có thể
+  dùng nhiều bộ nhớ trên thiết bị quản trị, vì vậy nên upload bằng desktop.
 - Guard trong ứng dụng giảm nguy cơ vượt free tier nhưng không thể cam kết `$0`
   tuyệt đối khi pricing/quota của nhà cung cấp thay đổi. Bật usage/billing alert.
 - Xóa vĩnh viễn file R2 không thể hoàn tác; phải tải bản sao về máy trước nếu cần.

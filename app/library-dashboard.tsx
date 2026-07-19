@@ -345,7 +345,10 @@ export function LibraryDashboard({
           </div>
         )}
 
-        <section className="hero" aria-labelledby="hero-title">
+        <section
+          className={`hero${viewer.isOwner ? "" : " hero-public"}`}
+          aria-labelledby="hero-title"
+        >
           <div>
             <p className="eyebrow">Thư viện của Tuấn</p>
             <blockquote className="hero-quote">
@@ -365,22 +368,28 @@ export function LibraryDashboard({
             <div className="library-stat" aria-label={`Thư viện có ${activeBooks.length} cuốn`}>
               <span aria-hidden="true">▥</span>
               <strong>{activeBooks.length} cuốn</strong>
-              <i>·</i>
-              <span>{formatBytes(storage.committedBytes)}</span>
+              {viewer.isOwner && (
+                <>
+                  <i>·</i>
+                  <span>{formatBytes(storage.committedBytes)}</span>
+                </>
+              )}
             </div>
           </div>
-          <div className="quota-panel" aria-label="Dung lượng R2">
-            <div className="quota-heading">
-              <span>Dung lượng an toàn</span>
-              <strong>
-                {formatBytes(storage.committedBytes + storage.reservedBytes)} / 9 GB
-              </strong>
+          {viewer.isOwner && (
+            <div className="quota-panel" aria-label="Dung lượng R2">
+              <div className="quota-heading">
+                <span>Dung lượng an toàn</span>
+                <strong>
+                  {formatBytes(storage.committedBytes + storage.reservedBytes)} / 9 GB
+                </strong>
+              </div>
+              <div className="quota-track" aria-hidden="true">
+                <span style={{ width: `${quotaPercent}%` }} />
+              </div>
+              <p>Còn {formatBytes(remainingBytes)} trước hard quota miễn phí.</p>
             </div>
-            <div className="quota-track" aria-hidden="true">
-              <span style={{ width: `${quotaPercent}%` }} />
-            </div>
-            <p>Còn {formatBytes(remainingBytes)} trước hard quota miễn phí.</p>
-          </div>
+          )}
         </section>
 
         {continueBooks.length > 0 && (

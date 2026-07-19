@@ -2,11 +2,17 @@
   {
     "AllowedOrigins": [
       "http://localhost:3000",
-      "https://your-project.vercel.app"
+      "https://utanbook.vercel.app"
     ],
     "AllowedMethods": ["GET", "PUT", "HEAD"],
-    "AllowedHeaders": ["Content-Type"],
-    "ExposeHeaders": ["ETag", "Content-Length"],
+    "AllowedHeaders": ["Content-Type", "Range"],
+    "ExposeHeaders": [
+      "ETag",
+      "Content-Length",
+      "Content-Range",
+      "Accept-Ranges",
+      "Content-Type"
+    ],
     "MaxAgeSeconds": 3600
   }
 ]

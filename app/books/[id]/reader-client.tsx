@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { LibraryBook } from "@/lib/library-repository";
+import { PdfReader } from "./pdf-reader";
 
 type Theme = "paper" | "night" | "sepia";
 
@@ -13,6 +14,7 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
   const [text, setText] = useState<string | null>(null);
   const [loadError, setLoadError] = useState("");
   const [progress, setProgress] = useState(book.progress);
+  const [progressReady, setProgressReady] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -21,6 +23,7 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
       if (active && Number.isFinite(stored)) {
         setProgress(Math.min(100, Math.max(0, stored)));
       }
+      if (active) setProgressReady(true);
     });
     return () => {
       active = false;
@@ -45,13 +48,13 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
     return () => controller.abort();
   }, [book.format, book.id]);
 
-  function scheduleProgress(nextProgress: number) {
+  const scheduleProgress = useCallback((nextProgress: number) => {
     setProgress(nextProgress);
     localStorage.setItem(`reading-progress:${book.id}`, String(nextProgress));
-  }
+  }, [book.id]);
 
   return (
-    <main className={`reader-shell reader-${theme}`}>
+    <main className={`reader-shell reader-${theme}${book.format === "PDF" ? " reader-pdf-shell" : ""}`}>
       <header className="reader-toolbar">
         <Link className="reader-back" href="/" aria-label="Về thư viện">
           ← <span>Thư viện</span>
@@ -102,13 +105,21 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
         </div>
       </header>
 
-      <section className="reader-stage" aria-label={`Đang đọc ${book.title}`}>
+      <section
+        className={`reader-stage${book.format === "PDF" ? " pdf-reader-stage" : ""}`}
+        aria-label={`Đang đọc ${book.title}`}
+      >
         {book.format === "PDF" ? (
-          <iframe
-            className="pdf-frame"
-            src={`/api/v1/books/${encodeURIComponent(book.id)}/content`}
-            title={`Nội dung ${book.title}`}
-          />
+          progressReady ? (
+            <PdfReader
+              bookId={book.id}
+              initialProgress={progress}
+              onProgress={scheduleProgress}
+              title={book.title}
+            />
+          ) : (
+            <div className="reader-message">Đang khôi phục trang đã đọc…</div>
+          )
         ) : loadError ? (
           <div className="reader-message" role="alert">{loadError}</div>
         ) : text === null ? (
@@ -120,17 +131,19 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
         )}
       </section>
 
-      <footer className="reader-progress-bar">
-        <label htmlFor="reading-progress">Tiến độ {progress}%</label>
-        <input
-          id="reading-progress"
-          max="100"
-          min="0"
-          onChange={(event) => scheduleProgress(Number(event.target.value))}
-          type="range"
-          value={progress}
-        />
-      </footer>
+      {book.format === "TXT" && (
+        <footer className="reader-progress-bar">
+          <label htmlFor="reading-progress">Tiến độ {progress}%</label>
+          <input
+            id="reading-progress"
+            max="100"
+            min="0"
+            onChange={(event) => scheduleProgress(Number(event.target.value))}
+            type="range"
+            value={progress}
+          />
+        </footer>
+      )}
     </main>
   );
 }

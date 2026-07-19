@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./delete-book.css";
+import "./mobile-pdf-reader.css";
 
 export const metadata: Metadata = {
   title: "Tủ sách của Tuấn",

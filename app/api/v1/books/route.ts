@@ -1,5 +1,5 @@
 import { jsonError, jsonOk, requestId } from "@/lib/http";
-import { getStorageStats, listPublishedBooks } from "@/lib/library-repository";
+import { listPublishedBooks } from "@/lib/library-repository";
 
 export const dynamic = "force-dynamic";
 
@@ -8,11 +8,8 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const query = (url.searchParams.get("q") ?? "").slice(0, 100);
-    const [books, storage] = await Promise.all([
-      listPublishedBooks(query),
-      getStorageStats(),
-    ]);
-    return jsonOk({ data: books, meta: { storage, count: books.length } });
+    const books = await listPublishedBooks(query);
+    return jsonOk({ data: books, meta: { count: books.length } });
   } catch {
     return jsonError(
       503,

@@ -953,17 +953,6 @@ button {
   padding: clamp(12px, 2vw, 24px);
 }
 
-.pdf-frame {
-  display: block;
-  width: min(100%, 1180px);
-  height: calc(100vh - 146px);
-  min-height: 560px;
-  margin: 0 auto;
-  border: 1px solid color-mix(in srgb, var(--reader-ink) 18%, transparent);
-  border-radius: 12px;
-  background: white;
-}
-
 .text-reader {
   width: min(100%, 780px);
   min-height: calc(100vh - 180px);
@@ -1155,10 +1144,6 @@ button {
     overflow-x: auto;
   }
 
-  .pdf-frame {
-    height: calc(100vh - 194px);
-    min-height: 420px;
-  }
 }
 
 @media (max-width: 580px) {

@@ -36,5 +36,12 @@ test("R2 CORS is origin-scoped and never wildcarded", () => {
   const rule = cors[0];
   assert.equal(rule.AllowedOrigins.includes("*"), false);
   assert.deepEqual(rule.AllowedMethods, ["GET", "PUT", "HEAD"]);
-  assert.deepEqual(rule.AllowedHeaders, ["Content-Type"]);
+  assert.deepEqual(rule.AllowedHeaders, ["Content-Type", "Range"]);
+  assert.deepEqual(rule.ExposeHeaders, [
+    "ETag",
+    "Content-Length",
+    "Content-Range",
+    "Accept-Ranges",
+    "Content-Type",
+  ]);
 });
