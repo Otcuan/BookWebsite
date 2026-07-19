@@ -1,0 +1,9 @@
+ALTER TABLE `upload_reservations` ADD `book_id` text;--> statement-breakpoint
+ALTER TABLE `upload_reservations` ADD `object_key` text;--> statement-breakpoint
+ALTER TABLE `upload_reservations` ADD `title` text;--> statement-breakpoint
+ALTER TABLE `upload_reservations` ADD `author` text;--> statement-breakpoint
+ALTER TABLE `upload_reservations` ADD `description` text;--> statement-breakpoint
+ALTER TABLE `upload_reservations` ADD `format` text;--> statement-breakpoint
+ALTER TABLE `upload_reservations` ADD `mime_type` text;--> statement-breakpoint
+ALTER TABLE `upload_reservations` ADD `checksum_sha256` text;--> statement-breakpoint
+CREATE UNIQUE INDEX `upload_reservations_object_key_unique` ON `upload_reservations` (`object_key`);
