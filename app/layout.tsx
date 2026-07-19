@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Tủ sách riêng",
-  description: "Kho sách cá nhân để bạn bè đọc trực tuyến.",
+  title: "Tủ sách của Tuấn",
+  description: "Thư viện của Tuấn — kho sách cá nhân để bạn bè đọc trực tuyến.",
   robots: { index: false, follow: false },
   icons: {
     icon: "/favicon.svg",

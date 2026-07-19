@@ -19,6 +19,7 @@
     "@aws-sdk/s3-request-presigner": "3.1090.0",
     "drizzle-orm": "0.45.2",
     "next": "16.2.10",
+    "pdfjs-dist": "6.1.200",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
@@ -32,5 +33,5 @@
     "typescript": "5.9.3"
   },
   "type": "module",
-  "displayName": "T\u1ee7 s\u00e1ch ri\u00eang"
+  "displayName": "Tủ sách của Tuấn"
 }

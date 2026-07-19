@@ -44,6 +44,10 @@ export const books = sqliteTable(
     sizeBytes: integer("size_bytes").notNull(),
     objectKey: text("object_key").notNull(),
     checksumSha256: text("checksum_sha256").notNull(),
+    coverObjectKey: text("cover_object_key"),
+    coverMimeType: text("cover_mime_type"),
+    coverSizeBytes: integer("cover_size_bytes"),
+    coverChecksumSha256: text("cover_checksum_sha256"),
     status: text("status", { enum: ["draft", "published", "quarantined"] })
       .notNull()
       .default("draft"),
@@ -60,6 +64,7 @@ export const books = sqliteTable(
   (table) => [
     uniqueIndex("books_slug_unique").on(table.slug),
     uniqueIndex("books_object_key_unique").on(table.objectKey),
+    uniqueIndex("books_cover_object_key_unique").on(table.coverObjectKey),
     index("books_status_updated_idx").on(table.status, table.updatedAt),
     index("books_title_idx").on(table.title),
     index("books_author_idx").on(table.author),
@@ -161,6 +166,11 @@ export const uploadReservations = sqliteTable(
     format: text("format", { enum: ["pdf", "txt"] }),
     mimeType: text("mime_type"),
     checksumSha256: text("checksum_sha256"),
+    bookSizeBytes: integer("book_size_bytes"),
+    coverObjectKey: text("cover_object_key"),
+    coverMimeType: text("cover_mime_type"),
+    coverSizeBytes: integer("cover_size_bytes"),
+    coverChecksumSha256: text("cover_checksum_sha256"),
     reservedBytes: integer("reserved_bytes").notNull(),
     status: text("status", { enum: ["reserved", "committed", "released"] })
       .notNull()
@@ -172,6 +182,7 @@ export const uploadReservations = sqliteTable(
   (table) => [
     index("upload_reservations_expiry_idx").on(table.status, table.expiresAt),
     uniqueIndex("upload_reservations_object_key_unique").on(table.objectKey),
+    uniqueIndex("upload_reservations_cover_object_key_unique").on(table.coverObjectKey),
     check("upload_reservations_bytes_positive", sql`${table.reservedBytes} > 0`),
     check(
       "upload_reservations_status_allowed",

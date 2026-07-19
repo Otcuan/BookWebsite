@@ -72,3 +72,44 @@ test("direct-upload migration stores immutable reservation metadata", () => {
     assert.ok(columns.includes(name), `missing ${name}`);
   }
 });
+
+test("cover migration is additive and backfills active reservation size", () => {
+  const database = new DatabaseSync(":memory:");
+  database.exec(readFileSync("drizzle/0000_tearful_wasp.sql", "utf8"));
+  database.exec(readFileSync("drizzle/0001_colossal_misty_knight.sql", "utf8"));
+  database
+    .prepare("INSERT INTO principals (email, role) VALUES (?, 'owner')")
+    .run("owner@library.local");
+  database
+    .prepare(
+      `INSERT INTO upload_reservations
+         (id, principal_email, reserved_bytes, status, expires_at)
+       VALUES (?, ?, ?, 'reserved', ?)`,
+    )
+    .run("reservation-1", "owner@library.local", 1234, "2099-01-01T00:00:00.000Z");
+
+  database.exec(readFileSync("drizzle/0002_amazing_whizzer.sql", "utf8"));
+  const bookColumns = database
+    .prepare("PRAGMA table_info(books)")
+    .all()
+    .map((column) => column.name);
+  const reservationColumns = database
+    .prepare("PRAGMA table_info(upload_reservations)")
+    .all()
+    .map((column) => column.name);
+
+  for (const name of [
+    "cover_object_key",
+    "cover_mime_type",
+    "cover_size_bytes",
+    "cover_checksum_sha256",
+  ]) {
+    assert.ok(bookColumns.includes(name), `books missing ${name}`);
+    assert.ok(reservationColumns.includes(name), `upload_reservations missing ${name}`);
+  }
+  assert.ok(reservationColumns.includes("book_size_bytes"));
+  const reservation = database
+    .prepare("SELECT book_size_bytes FROM upload_reservations WHERE id = ?")
+    .get("reservation-1");
+  assert.equal(reservation.book_size_bytes, 1234);
+});

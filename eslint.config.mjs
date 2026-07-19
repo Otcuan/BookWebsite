@@ -11,6 +11,9 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    // Vendored, minified PDF.js runtime and font data. This code is pinned
+    // through package-lock.json and must not be linted as application source.
+    "public/pdfjs/**",
     "next-env.d.ts",
   ]),
 ]);

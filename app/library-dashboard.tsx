@@ -1,8 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { validateBookFile } from "@/lib/file-security";
+import { validateBookFile, validateCoverImage } from "@/lib/file-security";
 import type { LibraryBook, StorageStats } from "@/lib/library-repository";
+import { generateCoverFromPdf } from "@/lib/pdf-cover";
+import type { LibraryQuote } from "@/lib/quotes";
 
 type Viewer = {
   displayName: string;
@@ -27,12 +30,14 @@ export function LibraryDashboard({
   initialBooks,
   initialStorage,
   ownerConfigured,
+  quote,
   serviceError,
 }: {
   viewer: Viewer;
   initialBooks: LibraryBook[];
   initialStorage: StorageStats;
   ownerConfigured: boolean;
+  quote: LibraryQuote;
   serviceError: boolean;
 }) {
   const [books, setBooks] = useState(initialBooks);
@@ -43,6 +48,7 @@ export function LibraryDashboard({
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadNotice, setUploadNotice] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -55,6 +61,13 @@ export function LibraryDashboard({
         }),
       );
     });
+  }, []);
+
+  useEffect(() => {
+    const updateClock = () => setNow(new Date());
+    updateClock();
+    const timer = window.setInterval(updateClock, 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const visibleBooks = useMemo(() => {
@@ -82,6 +95,8 @@ export function LibraryDashboard({
     0,
     storage.hardLimitBytes - storage.committedBytes - storage.reservedBytes,
   );
+  const currentTime = now ? formatTime(now) : "--:--:--";
+  const currentDate = now ? formatDate(now) : "Đang cập nhật ngày";
 
   async function submitUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -94,6 +109,20 @@ export function LibraryDashboard({
       const rawFile = data.get("file");
       if (!(rawFile instanceof File)) throw new Error("Hãy chọn một tệp PDF hoặc TXT.");
       const accepted = await validateBookFile(rawFile);
+      const rawCover = data.get("cover");
+      let coverFile = rawCover instanceof File && rawCover.size > 0 ? rawCover : null;
+      let automaticCoverWarning = "";
+      if (!coverFile && accepted.extension === "pdf") {
+        setUploadNotice("Đang tạo ảnh bìa từ trang đầu PDF…");
+        try {
+          coverFile = await generateCoverFromPdf(rawFile);
+        } catch (error) {
+          automaticCoverWarning = error instanceof Error
+            ? error.message
+            : "Không thể tự tạo ảnh bìa; đã dùng bìa mặc định.";
+        }
+      }
+      const acceptedCover = coverFile ? await validateCoverImage(coverFile) : null;
       const response = await fetch("/api/v1/books/upload", {
         method: "POST",
         credentials: "same-origin",
@@ -106,10 +135,22 @@ export function LibraryDashboard({
           sizeBytes: rawFile.size,
           mimeType: accepted.mimeType,
           sha256: accepted.sha256,
+          cover: coverFile && acceptedCover
+            ? {
+                fileName: coverFile.name,
+                sizeBytes: coverFile.size,
+                mimeType: acceptedCover.mimeType,
+                sha256: acceptedCover.sha256,
+              }
+            : null,
         }),
       });
       const sessionPayload = (await response.json()) as {
-        data?: { reservationId: string; uploadUrl: string };
+        data?: {
+          reservationId: string;
+          uploadUrl: string;
+          coverUploadUrl: string | null;
+        };
         error?: { message?: string };
       };
       if (!response.ok || !sessionPayload.data) {
@@ -124,6 +165,21 @@ export function LibraryDashboard({
       });
       if (!uploadResponse.ok) {
         throw new Error("R2 từ chối tệp. Kiểm tra CORS và thử lại.");
+      }
+
+      if (coverFile && acceptedCover) {
+        if (!sessionPayload.data.coverUploadUrl) {
+          throw new Error("Không tạo được liên kết tải ảnh bìa.");
+        }
+        setUploadNotice("Đang chuyển ảnh bìa đến kho R2…");
+        const coverResponse = await fetch(sessionPayload.data.coverUploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": acceptedCover.mimeType },
+          body: coverFile,
+        });
+        if (!coverResponse.ok) {
+          throw new Error("R2 từ chối ảnh bìa. Kiểm tra CORS và thử lại.");
+        }
       }
 
       setUploadNotice("Đang kiểm tra chữ ký tệp và xuất bản…");
@@ -144,10 +200,14 @@ export function LibraryDashboard({
       setBooks((current) => [payload.data!, ...current]);
       setStorage((current) => ({
         ...current,
-        committedBytes: current.committedBytes + payload.data!.sizeBytes,
+        committedBytes: current.committedBytes + payload.data!.storageBytes,
       }));
       form.reset();
-      setUploadNotice("Đã kiểm tra và xuất bản sách thành công.");
+      setUploadNotice(
+        automaticCoverWarning
+          ? `Đã xuất bản sách. ${automaticCoverWarning} Hệ thống đang dùng bìa mặc định.`
+          : "Đã kiểm tra và xuất bản sách thành công.",
+      );
     } catch (error) {
       setUploadNotice(error instanceof Error ? error.message : "Tải lên thất bại.");
     } finally {
@@ -166,9 +226,9 @@ export function LibraryDashboard({
   return (
     <main className="library-shell">
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="Tủ sách riêng — về đầu trang">
+        <a className="brand" href="#top" aria-label="Tủ sách của Tuấn — về đầu trang">
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
-          <span>Tủ sách riêng</span>
+          <span>Tủ sách của Tuấn</span>
         </a>
 
         <nav className="main-nav" aria-label="Điều hướng chính">
@@ -216,14 +276,21 @@ export function LibraryDashboard({
 
         <section className="hero" aria-labelledby="hero-title">
           <div>
-            <p className="eyebrow">{viewer.isOwner ? "Thư viện của bạn" : "Kho sách chia sẻ"}</p>
+            <p className="eyebrow">Thư viện của Tuấn</p>
             <blockquote className="hero-quote">
-              <h1 id="hero-title">
-                “Đọc sách làm con người đầy đặn; đàm luận làm người ta ứng biến;
-                viết lách làm người ta chính xác.”
-              </h1>
-              <cite>— Francis Bacon, “Of Studies”</cite>
+              <h1 id="hero-title">“{quote.text}”</h1>
+              <cite>— {quote.author}, <span>{quote.source}</span></cite>
             </blockquote>
+            <div className="hero-datetime" aria-label="Ngày giờ hiện tại tại Việt Nam">
+              <time dateTime={now?.toISOString()}>
+                <span aria-hidden="true">◷</span>
+                {currentTime}
+              </time>
+              <time dateTime={now?.toISOString()}>
+                <span aria-hidden="true">▦</span>
+                {currentDate}
+              </time>
+            </div>
             <div className="library-stat" aria-label={`Thư viện có ${books.length} cuốn`}>
               <span aria-hidden="true">▥</span>
               <strong>{books.length} cuốn</strong>
@@ -258,7 +325,7 @@ export function LibraryDashboard({
             <div className="continue-grid">
               {continueBooks.map((book) => (
                 <a className="continue-card" href={`/books/${book.id}`} key={book.id}>
-                  <BookCover tone={coverTone(book.id)} title={book.title} />
+                  <BookCover coverUrl={book.coverUrl} tone={coverTone(book.id)} title={book.title} />
                   <div className="continue-info">
                     <div>
                       <h3>{book.title}</h3>
@@ -318,7 +385,7 @@ export function LibraryDashboard({
             <div className={`book-collection ${view}`}>
               {visibleBooks.map((book) => (
                 <a className="book-tile" href={`/books/${book.id}`} key={book.id}>
-                  <BookCover tone={coverTone(book.id)} title={book.title} />
+                  <BookCover coverUrl={book.coverUrl} tone={coverTone(book.id)} title={book.title} />
                   <div className="book-meta">
                     <h3>{book.title}</h3>
                     <p>{book.author}</p>
@@ -365,6 +432,14 @@ export function LibraryDashboard({
                 Tệp PDF hoặc TXT
                 <input accept=".pdf,.txt,application/pdf,text/plain" name="file" required type="file" />
               </label>
+              <label>
+                Ảnh bìa <span className="optional">(tùy chọn ghi đè)</span>
+                <input
+                  accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                  name="cover"
+                  type="file"
+                />
+              </label>
               <div className="form-row">
                 <label>
                   Tên sách
@@ -380,8 +455,10 @@ export function LibraryDashboard({
                 <textarea maxLength={2000} name="description" rows={3} />
               </label>
               <p className="upload-help">
-                Tối đa 50 MB. Tệp đi thẳng đến R2; server chỉ xuất bản sau khi kiểm tra MIME,
-                kích thước, chữ ký tệp và hard quota 9 GB.
+                Sách tối đa 100 MiB; ảnh bìa JPG/PNG/WebP tối đa 3 MiB. Các tệp đi thẳng
+                đến R2; server chỉ xuất bản sau khi kiểm tra MIME, kích thước, chữ ký tệp
+                và hard quota 9 GB. Nếu để trống ảnh bìa, trang đầu PDF sẽ tự động được
+                render thành bìa; TXT tiếp tục dùng bìa minh họa mặc định.
               </p>
               {uploadNotice && <p className="notice" role="status">{uploadNotice}</p>}
               <button className="upload-button modal-submit" disabled={uploading} type="submit">
@@ -395,13 +472,39 @@ export function LibraryDashboard({
   );
 }
 
-function BookCover({ tone, title }: { tone: Tone; title: string }) {
+function BookCover({
+  coverUrl,
+  tone,
+  title,
+}: {
+  coverUrl: string | null;
+  tone: Tone;
+  title: string;
+}) {
   return (
-    <div className={`book-cover ${tone}`} aria-label={`Bìa sách ${title}`} role="img">
-      <span className="cover-line one" />
-      <span className="cover-line two" />
-      <span className="cover-orb" />
-      <small>{title}</small>
+    <div
+      className={`book-cover ${tone}${coverUrl ? " has-image" : ""}`}
+      aria-label={`Bìa sách ${title}`}
+      role="img"
+    >
+      {coverUrl ? (
+        // The parent supplies the accessible label; an empty alt avoids duplicate narration.
+        <Image
+          alt=""
+          className="book-cover-image"
+          fill
+          sizes="(max-width: 580px) 50vw, (max-width: 820px) 33vw, 17vw"
+          src={coverUrl}
+          unoptimized
+        />
+      ) : (
+        <>
+          <span className="cover-line one" />
+          <span className="cover-line two" />
+          <span className="cover-orb" />
+          <small>{title}</small>
+        </>
+      )}
     </div>
   );
 }
@@ -410,6 +513,35 @@ function coverTone(id: string): Tone {
   const tones: Tone[] = ["rain", "arch", "road", "sun", "type", "forest"];
   const sum = Array.from(id).reduce((total, character) => total + character.charCodeAt(0), 0);
   return tones[sum % tones.length];
+}
+
+const timeFormatter = new Intl.DateTimeFormat("vi-VN", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+  timeZone: "Asia/Ho_Chi_Minh",
+});
+
+const weekdayFormatter = new Intl.DateTimeFormat("vi-VN", {
+  weekday: "long",
+  timeZone: "Asia/Ho_Chi_Minh",
+});
+
+const dateFormatter = new Intl.DateTimeFormat("vi-VN", {
+  day: "numeric",
+  month: "numeric",
+  year: "numeric",
+  timeZone: "Asia/Ho_Chi_Minh",
+});
+
+function formatTime(value: Date): string {
+  return timeFormatter.format(value);
+}
+
+function formatDate(value: Date): string {
+  const weekday = weekdayFormatter.format(value);
+  return `${weekday.charAt(0).toLocaleUpperCase("vi")}${weekday.slice(1)}, ${dateFormatter.format(value)}`;
 }
 
 function formatBytes(value: number): string {

@@ -15,6 +15,13 @@
       "when": 1784457296546,
       "tag": "0001_colossal_misty_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784464358182,
+      "tag": "0002_amazing_whizzer",
+      "breakpoints": true
     }
   ]
 }

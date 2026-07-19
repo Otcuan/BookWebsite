@@ -1,9 +1,15 @@
-export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+export const MAX_COVER_BYTES = 3 * 1024 * 1024;
 
 export type AcceptedBookFile = {
-  bytes: Uint8Array;
   extension: "pdf" | "txt";
   mimeType: "application/pdf" | "text/plain";
+  sha256: string;
+};
+
+export type AcceptedCoverImage = {
+  extension: "jpg" | "png" | "webp";
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
   sha256: string;
 };
 
@@ -23,25 +29,27 @@ export async function validateBookFile(file: File): Promise<AcceptedBookFile> {
   if (file.size > MAX_UPLOAD_BYTES) {
     throw new FileValidationError(
       "FILE_TOO_LARGE",
-      "Tệp vượt quá giới hạn 50 MB.",
+      "Tệp vượt quá giới hạn 100 MiB.",
     );
   }
 
   const name = file.name.toLowerCase();
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const looksLikePdf = hasPdfSignature(bytes);
-  const looksLikeText = isSafeUtf8Text(bytes);
 
   let extension: AcceptedBookFile["extension"];
   let mimeType: AcceptedBookFile["mimeType"];
 
-  if (name.endsWith(".pdf") && file.type === "application/pdf" && looksLikePdf) {
+  if (
+    name.endsWith(".pdf") &&
+    file.type === "application/pdf" &&
+    hasPdfSignature(bytes)
+  ) {
     extension = "pdf";
     mimeType = "application/pdf";
   } else if (
     name.endsWith(".txt") &&
     (file.type === "text/plain" || file.type === "") &&
-    looksLikeText
+    isSafeUtf8Text(bytes)
   ) {
     extension = "txt";
     mimeType = "text/plain";
@@ -52,12 +60,56 @@ export async function validateBookFile(file: File): Promise<AcceptedBookFile> {
     );
   }
 
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const sha256 = Array.from(new Uint8Array(digest), (value) =>
-    value.toString(16).padStart(2, "0"),
-  ).join("");
+  const sha256 = await checksumSha256(bytes);
 
-  return { bytes, extension, mimeType, sha256 };
+  return { extension, mimeType, sha256 };
+}
+
+export async function validateCoverImage(file: File): Promise<AcceptedCoverImage> {
+  if (file.size <= 0) {
+    throw new FileValidationError("EMPTY_COVER", "Ảnh bìa không có nội dung.");
+  }
+  if (file.size > MAX_COVER_BYTES) {
+    throw new FileValidationError(
+      "COVER_TOO_LARGE",
+      "Ảnh bìa vượt quá giới hạn 3 MiB.",
+    );
+  }
+
+  const name = file.name.toLowerCase();
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let extension: AcceptedCoverImage["extension"];
+  let mimeType: AcceptedCoverImage["mimeType"];
+
+  if (
+    (name.endsWith(".jpg") || name.endsWith(".jpeg")) &&
+    file.type === "image/jpeg" &&
+    hasJpegSignature(bytes)
+  ) {
+    extension = "jpg";
+    mimeType = "image/jpeg";
+  } else if (name.endsWith(".png") && file.type === "image/png" && hasPngSignature(bytes)) {
+    extension = "png";
+    mimeType = "image/png";
+  } else if (
+    name.endsWith(".webp") &&
+    file.type === "image/webp" &&
+    hasWebpSignature(bytes)
+  ) {
+    extension = "webp";
+    mimeType = "image/webp";
+  } else {
+    throw new FileValidationError(
+      "UNSUPPORTED_COVER",
+      "Ảnh bìa phải là JPG, PNG hoặc WebP có phần mở rộng, MIME và chữ ký khớp nhau.",
+    );
+  }
+
+  return {
+    extension,
+    mimeType,
+    sha256: await checksumSha256(bytes),
+  };
 }
 
 function hasPdfSignature(bytes: Uint8Array): boolean {
@@ -79,6 +131,30 @@ function isSafeUtf8Text(bytes: Uint8Array): boolean {
   } catch {
     return false;
   }
+}
+
+function hasJpegSignature(bytes: Uint8Array): boolean {
+  return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+}
+
+function hasPngSignature(bytes: Uint8Array): boolean {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  return bytes.length >= signature.length && signature.every((value, index) => bytes[index] === value);
+}
+
+function hasWebpSignature(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 12 &&
+    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
+  );
+}
+
+async function checksumSha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (value) =>
+    value.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 export function safeSlug(title: string): string {

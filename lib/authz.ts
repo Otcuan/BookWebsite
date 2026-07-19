@@ -28,7 +28,7 @@ export async function getViewer(): Promise<Viewer> {
   }
 
   return {
-    displayName: "Chủ thư viện",
+    displayName: "Tuấn",
     email: OWNER_PRINCIPAL_EMAIL,
     isOwner: true,
   };

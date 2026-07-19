@@ -6,6 +6,7 @@ import {
   type StorageStats,
 } from "@/lib/library-repository";
 import { isOwnerAuthConfigured, isRuntimeConfigured } from "@/lib/runtime";
+import { selectRandomQuote } from "@/lib/quotes";
 import { LibraryDashboard } from "./library-dashboard";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,7 @@ export default async function Home() {
       initialBooks={books}
       initialStorage={storage}
       ownerConfigured={isOwnerAuthConfigured()}
+      quote={selectRandomQuote()}
       serviceError={serviceError}
       viewer={{
         displayName: viewer.displayName,

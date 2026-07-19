@@ -19,6 +19,14 @@ type UploadRequest = {
   sizeBytes?: unknown;
   mimeType?: unknown;
   sha256?: unknown;
+  cover?: unknown;
+};
+
+type CoverUploadRequest = {
+  fileName?: unknown;
+  sizeBytes?: unknown;
+  mimeType?: unknown;
+  sha256?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -73,6 +81,15 @@ export async function POST(request: Request) {
         id,
       );
     }
+    const cover = parseCover(body.cover);
+    if (cover === undefined) {
+      return jsonError(
+        422,
+        "VALIDATION_ERROR",
+        "Metadata ảnh bìa không đầy đủ.",
+        id,
+      );
+    }
 
     const reservation = await createUploadReservation({
       viewer,
@@ -83,6 +100,7 @@ export async function POST(request: Request) {
       sizeBytes: Number(body.sizeBytes),
       mimeType,
       sha256,
+      cover,
       requestId: id,
     });
     return jsonOk({ data: reservation }, { status: 201 });
@@ -103,6 +121,25 @@ export async function POST(request: Request) {
       id,
     );
   }
+}
+
+function parseCover(value: unknown): {
+  fileName: string;
+  sizeBytes: number;
+  mimeType: string;
+  sha256: string;
+} | null | undefined {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return undefined;
+  const input = value as CoverUploadRequest;
+  const fileName = cleanText(input.fileName, 255);
+  const mimeType = cleanText(input.mimeType, 100);
+  const sha256 = cleanText(input.sha256, 64);
+  const sizeBytes = Number(input.sizeBytes);
+  if (!fileName || !mimeType || !sha256 || !Number.isSafeInteger(sizeBytes)) {
+    return undefined;
+  }
+  return { fileName, sizeBytes, mimeType, sha256 };
 }
 
 function cleanText(value: unknown, maxLength: number, optional = false): string | null {

@@ -1,6 +1,10 @@
 import type { Viewer } from "@/lib/authz";
 import type { D1DatabaseLike } from "@/lib/d1-http";
-import { MAX_UPLOAD_BYTES, safeSlug } from "@/lib/file-security";
+import {
+  MAX_COVER_BYTES,
+  MAX_UPLOAD_BYTES,
+  safeSlug,
+} from "@/lib/file-security";
 import {
   createPresignedPutUrl,
   deleteR2Object,
@@ -22,6 +26,9 @@ export type LibraryBook = {
   format: "PDF" | "TXT";
   mimeType: string;
   sizeBytes: number;
+  coverUrl: string | null;
+  coverSizeBytes: number;
+  storageBytes: number;
   progress: number;
   locator: string | null;
   progressVersion: number;
@@ -37,6 +44,7 @@ export type StorageStats = {
 export type UploadReservation = {
   reservationId: string;
   uploadUrl: string;
+  coverUploadUrl: string | null;
   expiresAt: string;
 };
 
@@ -49,6 +57,8 @@ type BookRow = {
   format: "pdf" | "txt";
   mime_type: string;
   size_bytes: number;
+  cover_object_key: string | null;
+  cover_size_bytes: number | null;
   updated_at: string;
 };
 
@@ -63,6 +73,11 @@ type ReservationRow = {
   format: "pdf" | "txt" | null;
   mime_type: string | null;
   checksum_sha256: string | null;
+  book_size_bytes: number | null;
+  cover_object_key: string | null;
+  cover_mime_type: string | null;
+  cover_size_bytes: number | null;
+  cover_checksum_sha256: string | null;
   reserved_bytes: number;
   status: "reserved" | "committed" | "released";
   expires_at: string;
@@ -78,7 +93,7 @@ export async function listPublishedBooks(query = ""): Promise<LibraryBook[]> {
   const search = `%${escapeLike(query.trim().toLowerCase())}%`;
   const result = await DB.prepare(
     `SELECT id, slug, title, author, description, format,
-            mime_type, size_bytes, updated_at
+            mime_type, size_bytes, cover_object_key, cover_size_bytes, updated_at
      FROM books
      WHERE status = 'published'
        AND deleted_at IS NULL
@@ -97,7 +112,7 @@ export async function getPublishedBook(bookId: string): Promise<LibraryBook | nu
   const DB = getDatabase();
   const row = await DB.prepare(
     `SELECT id, slug, title, author, description, format,
-            mime_type, size_bytes, updated_at
+            mime_type, size_bytes, cover_object_key, cover_size_bytes, updated_at
      FROM books
      WHERE id = ? AND status = 'published' AND deleted_at IS NULL
      LIMIT 1`,
@@ -135,18 +150,30 @@ export async function createUploadReservation(input: {
   sizeBytes: number;
   mimeType: string;
   sha256: string;
+  cover: {
+    fileName: string;
+    sizeBytes: number;
+    mimeType: string;
+    sha256: string;
+  } | null;
   requestId: string;
 }): Promise<UploadReservation> {
   const DB = getDatabase();
   const file = validateUploadMetadata(input);
+  const cover = input.cover ? validateCoverMetadata(input.cover) : null;
+  const totalBytes = input.sizeBytes + (input.cover?.sizeBytes ?? 0);
+  if (!Number.isSafeInteger(totalBytes) || totalBytes <= 0) {
+    throw new UploadedObjectError("Tổng kích thước tệp không hợp lệ.");
+  }
   const bookId = crypto.randomUUID();
   const reservationId = crypto.randomUUID();
   const objectKey = `books/${bookId}.${file.format}`;
+  const coverObjectKey = cover ? `covers/${bookId}.${cover.extension}` : null;
   const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
 
   const operationBudgetAvailable = await consumeMonthlyBudget({
     metric: "r2_class_a",
-    amount: 2,
+    amount: cover ? 3 : 2,
     hardLimit: R2_CLASS_A_MONTHLY_APP_LIMIT,
   });
   if (!operationBudgetAvailable) {
@@ -162,12 +189,14 @@ export async function createUploadReservation(input: {
         `UPDATE storage_usage
          SET reserved_bytes = reserved_bytes + ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = 1`,
-      ).bind(input.sizeBytes),
+      ).bind(totalBytes),
       DB.prepare(
         `INSERT INTO upload_reservations
            (id, principal_email, book_id, object_key, title, author, description,
-            format, mime_type, checksum_sha256, reserved_bytes, status, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?)`,
+            format, mime_type, checksum_sha256, book_size_bytes,
+            cover_object_key, cover_mime_type, cover_size_bytes, cover_checksum_sha256,
+            reserved_bytes, status, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?)`,
       ).bind(
         reservationId,
         input.viewer.email,
@@ -180,6 +209,11 @@ export async function createUploadReservation(input: {
         file.mimeType,
         input.sha256,
         input.sizeBytes,
+        coverObjectKey,
+        cover?.mimeType ?? null,
+        input.cover?.sizeBytes ?? null,
+        input.cover?.sha256 ?? null,
+        totalBytes,
         expiresAt,
       ),
     ]);
@@ -193,11 +227,20 @@ export async function createUploadReservation(input: {
   }
 
   try {
-    const uploadUrl = await createPresignedPutUrl({
-      objectKey,
-      mimeType: file.mimeType,
-      expiresIn: 300,
-    });
+    const [uploadUrl, coverUploadUrl] = await Promise.all([
+      createPresignedPutUrl({
+        objectKey,
+        mimeType: file.mimeType,
+        expiresIn: 300,
+      }),
+      coverObjectKey && cover
+        ? createPresignedPutUrl({
+            objectKey: coverObjectKey,
+            mimeType: cover.mimeType,
+            expiresIn: 300,
+          })
+        : Promise.resolve(null),
+    ]);
     await writeAudit(DB, {
       actorEmail: input.viewer.email,
       action: "book.upload_reserved",
@@ -205,11 +248,16 @@ export async function createUploadReservation(input: {
       targetId: reservationId,
       outcome: "success",
       requestId: input.requestId,
-      metadata: { sizeBytes: input.sizeBytes, format: file.format },
+      metadata: {
+        bookSizeBytes: input.sizeBytes,
+        coverSizeBytes: input.cover?.sizeBytes ?? 0,
+        storageBytes: totalBytes,
+        format: file.format,
+      },
     });
-    return { reservationId, uploadUrl, expiresAt };
+    return { reservationId, uploadUrl, coverUploadUrl, expiresAt };
   } catch (error) {
-    await releaseReservation(reservationId, input.sizeBytes);
+    await releaseReservation(reservationId, totalBytes);
     throw error;
   }
 }
@@ -222,7 +270,9 @@ export async function finalizeUpload(input: {
   const DB = getDatabase();
   const reservation = await DB.prepare(
     `SELECT id, principal_email, book_id, object_key, title, author, description,
-            format, mime_type, checksum_sha256, reserved_bytes, status, expires_at
+            format, mime_type, checksum_sha256, book_size_bytes,
+            cover_object_key, cover_mime_type, cover_size_bytes, cover_checksum_sha256,
+            reserved_bytes, status, expires_at
      FROM upload_reservations
      WHERE id = ? AND principal_email = ?
      LIMIT 1`,
@@ -234,11 +284,12 @@ export async function finalizeUpload(input: {
     throw new UploadReservationError("Phiên tải lên không tồn tại hoặc đã hoàn tất.");
   }
   if (Date.parse(reservation.expires_at) <= Date.now()) {
-    if (reservation.object_key) await deleteR2Object(reservation.object_key).catch(() => undefined);
+    await deleteReservationObjects(reservation);
     await releaseReservation(reservation.id, reservation.reserved_bytes);
     throw new UploadReservationError("Phiên tải lên đã hết hạn.");
   }
   if (!hasCompleteReservation(reservation)) {
+    await deleteReservationObjects(reservation);
     await releaseReservation(reservation.id, reservation.reserved_bytes);
     throw new UploadReservationError("Phiên tải lên thiếu metadata bắt buộc.");
   }
@@ -246,7 +297,7 @@ export async function finalizeUpload(input: {
   try {
     await validateStoredObject(reservation);
   } catch (error) {
-    await deleteR2Object(reservation.object_key).catch(() => undefined);
+    await deleteReservationObjects(reservation);
     await releaseReservation(reservation.id, reservation.reserved_bytes);
     throw error;
   }
@@ -257,8 +308,9 @@ export async function finalizeUpload(input: {
       DB.prepare(
         `INSERT INTO books
           (id, slug, title, author, description, format, mime_type, size_bytes,
-           object_key, checksum_sha256, status, created_by_email, published_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, CURRENT_TIMESTAMP
+           object_key, checksum_sha256, cover_object_key, cover_mime_type,
+           cover_size_bytes, cover_checksum_sha256, status, created_by_email, published_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, CURRENT_TIMESTAMP
          FROM upload_reservations
          WHERE id = ? AND principal_email = ? AND status = 'reserved'`,
       ).bind(
@@ -269,9 +321,13 @@ export async function finalizeUpload(input: {
         reservation.description,
         reservation.format,
         reservation.mime_type,
-        reservation.reserved_bytes,
+        reservation.book_size_bytes,
         reservation.object_key,
         reservation.checksum_sha256,
+        reservation.cover_object_key,
+        reservation.cover_mime_type,
+        reservation.cover_size_bytes,
+        reservation.cover_checksum_sha256,
         input.viewer.email,
         reservation.id,
         input.viewer.email,
@@ -298,7 +354,9 @@ export async function finalizeUpload(input: {
         outcome: "success",
         requestId: input.requestId,
         metadata: {
-          sizeBytes: reservation.reserved_bytes,
+          bookSizeBytes: reservation.book_size_bytes,
+          coverSizeBytes: reservation.cover_size_bytes ?? 0,
+          storageBytes: reservation.reserved_bytes,
           format: reservation.format,
         },
       }),
@@ -311,7 +369,7 @@ export async function finalizeUpload(input: {
   } catch (error) {
     const existing = await getPublishedBook(reservation.book_id).catch(() => null);
     if (existing) return existing;
-    await deleteR2Object(reservation.object_key).catch(() => undefined);
+    await deleteReservationObjects(reservation);
     await releaseReservation(reservation.id, reservation.reserved_bytes);
     throw error;
   }
@@ -324,7 +382,12 @@ export async function finalizeUpload(input: {
     description: reservation.description,
     format: reservation.format.toUpperCase() as "PDF" | "TXT",
     mimeType: reservation.mime_type,
-    sizeBytes: reservation.reserved_bytes,
+    sizeBytes: reservation.book_size_bytes,
+    coverUrl: reservation.cover_object_key
+      ? `/api/v1/books/${reservation.book_id}/cover`
+      : null,
+    coverSizeBytes: reservation.cover_size_bytes ?? 0,
+    storageBytes: reservation.reserved_bytes,
     progress: 0,
     locator: null,
     progressVersion: 0,
@@ -350,6 +413,26 @@ export async function getBookObject(bookId: string): Promise<{
     .first();
 }
 
+export async function getBookCoverObject(bookId: string): Promise<{
+  objectKey: string;
+  mimeType: string;
+  sizeBytes: number;
+} | null> {
+  const DB = getDatabase();
+  return DB.prepare(
+    `SELECT cover_object_key AS objectKey, cover_mime_type AS mimeType,
+            cover_size_bytes AS sizeBytes
+     FROM books
+     WHERE id = ? AND status = 'published' AND deleted_at IS NULL
+       AND cover_object_key IS NOT NULL
+       AND cover_mime_type IS NOT NULL
+       AND cover_size_bytes IS NOT NULL
+     LIMIT 1`,
+  )
+    .bind(bookId)
+    .first();
+}
+
 async function validateStoredObject(reservation: ReservationRow & {
   book_id: string;
   object_key: string;
@@ -358,6 +441,7 @@ async function validateStoredObject(reservation: ReservationRow & {
   format: "pdf" | "txt";
   mime_type: string;
   checksum_sha256: string;
+  book_size_bytes: number;
 }) {
   let head: Awaited<ReturnType<typeof headR2Object>>;
   try {
@@ -366,7 +450,7 @@ async function validateStoredObject(reservation: ReservationRow & {
     throw new UploadedObjectError("Không tìm thấy tệp đã tải lên R2.");
   }
   const storedMime = head.mimeType?.split(";", 1)[0]?.toLowerCase();
-  if (head.sizeBytes !== reservation.reserved_bytes || storedMime !== reservation.mime_type) {
+  if (head.sizeBytes !== reservation.book_size_bytes || storedMime !== reservation.mime_type) {
     throw new UploadedObjectError("Kích thước hoặc MIME của tệp trên R2 không khớp.");
   }
 
@@ -382,16 +466,66 @@ async function validateStoredObject(reservation: ReservationRow & {
     ) {
       throw new UploadedObjectError("Tệp PDF không có chữ ký %PDF- hợp lệ.");
     }
-    return;
+  } else {
+    if (prefix.some((value) => value === 0)) {
+      throw new UploadedObjectError("Tệp TXT chứa byte NUL không an toàn.");
+    }
+    try {
+      new TextDecoder("utf-8", { fatal: true }).decode(prefix);
+    } catch {
+      throw new UploadedObjectError("Tệp TXT không phải UTF-8 hợp lệ.");
+    }
   }
-  if (prefix.some((value) => value === 0)) {
-    throw new UploadedObjectError("Tệp TXT chứa byte NUL không an toàn.");
+
+  await validateStoredCoverObject(reservation);
+}
+
+async function validateStoredCoverObject(reservation: ReservationRow) {
+  if (!reservation.cover_object_key) return;
+  if (
+    !reservation.cover_mime_type ||
+    !reservation.cover_size_bytes ||
+    !reservation.cover_checksum_sha256
+  ) {
+    throw new UploadedObjectError("Metadata ảnh bìa không đầy đủ.");
   }
+
+  let head: Awaited<ReturnType<typeof headR2Object>>;
   try {
-    new TextDecoder("utf-8", { fatal: true }).decode(prefix);
+    head = await headR2Object(reservation.cover_object_key);
   } catch {
-    throw new UploadedObjectError("Tệp TXT không phải UTF-8 hợp lệ.");
+    throw new UploadedObjectError("Không tìm thấy ảnh bìa đã tải lên R2.");
   }
+  const storedMime = head.mimeType?.split(";", 1)[0]?.toLowerCase();
+  if (
+    head.sizeBytes !== reservation.cover_size_bytes ||
+    storedMime !== reservation.cover_mime_type
+  ) {
+    throw new UploadedObjectError("Kích thước hoặc MIME của ảnh bìa trên R2 không khớp.");
+  }
+
+  const prefix = await getR2Prefix(reservation.cover_object_key);
+  const validSignature =
+    (reservation.cover_mime_type === "image/jpeg" && hasJpegSignature(prefix)) ||
+    (reservation.cover_mime_type === "image/png" && hasPngSignature(prefix)) ||
+    (reservation.cover_mime_type === "image/webp" && hasWebpSignature(prefix));
+  if (!validSignature) {
+    throw new UploadedObjectError("Ảnh bìa không có chữ ký JPG, PNG hoặc WebP hợp lệ.");
+  }
+}
+
+async function deleteReservationObjects(reservation: {
+  object_key: string | null;
+  cover_object_key: string | null;
+}) {
+  await Promise.all([
+    reservation.object_key
+      ? deleteR2Object(reservation.object_key).catch(() => undefined)
+      : Promise.resolve(),
+    reservation.cover_object_key
+      ? deleteR2Object(reservation.cover_object_key).catch(() => undefined)
+      : Promise.resolve(),
+  ]);
 }
 
 async function releaseReservation(reservationId: string, size: number) {
@@ -415,17 +549,20 @@ async function releaseReservation(reservationId: string, size: number) {
 async function releaseExpiredReservations() {
   const DB = getDatabase();
   const expired = await DB.prepare(
-    `SELECT id, object_key, reserved_bytes
+    `SELECT id, object_key, cover_object_key, reserved_bytes
      FROM upload_reservations
      WHERE status = 'reserved' AND expires_at < CURRENT_TIMESTAMP
      LIMIT 100`,
-  ).all<{ id: string; object_key: string | null; reserved_bytes: number }>();
+  ).all<{
+    id: string;
+    object_key: string | null;
+    cover_object_key: string | null;
+    reserved_bytes: number;
+  }>();
 
   for (const reservation of expired.results ?? []) {
     await releaseReservation(reservation.id, reservation.reserved_bytes);
-    if (reservation.object_key) {
-      await deleteR2Object(reservation.object_key).catch(() => undefined);
-    }
+    await deleteReservationObjects(reservation);
   }
 }
 
@@ -439,7 +576,7 @@ function validateUploadMetadata(input: {
     throw new UploadedObjectError("Kích thước tệp không hợp lệ.");
   }
   if (input.sizeBytes > MAX_UPLOAD_BYTES) {
-    throw new UploadedObjectError("Tệp vượt quá giới hạn 50 MB.");
+    throw new UploadedObjectError("Tệp vượt quá giới hạn 100 MiB.");
   }
   if (!/^[a-f0-9]{64}$/.test(input.sha256)) {
     throw new UploadedObjectError("Checksum SHA-256 không hợp lệ.");
@@ -457,6 +594,38 @@ function validateUploadMetadata(input: {
   throw new UploadedObjectError("Phần mở rộng và MIME phải là PDF hoặc TXT.");
 }
 
+function validateCoverMetadata(input: {
+  fileName: string;
+  sizeBytes: number;
+  mimeType: string;
+  sha256: string;
+}) {
+  if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes <= 0) {
+    throw new UploadedObjectError("Kích thước ảnh bìa không hợp lệ.");
+  }
+  if (input.sizeBytes > MAX_COVER_BYTES) {
+    throw new UploadedObjectError("Ảnh bìa vượt quá giới hạn 3 MiB.");
+  }
+  if (!/^[a-f0-9]{64}$/.test(input.sha256)) {
+    throw new UploadedObjectError("Checksum SHA-256 của ảnh bìa không hợp lệ.");
+  }
+
+  const name = input.fileName.toLowerCase();
+  if (
+    (name.endsWith(".jpg") || name.endsWith(".jpeg")) &&
+    input.mimeType === "image/jpeg"
+  ) {
+    return { extension: "jpg" as const, mimeType: "image/jpeg" as const };
+  }
+  if (name.endsWith(".png") && input.mimeType === "image/png") {
+    return { extension: "png" as const, mimeType: "image/png" as const };
+  }
+  if (name.endsWith(".webp") && input.mimeType === "image/webp") {
+    return { extension: "webp" as const, mimeType: "image/webp" as const };
+  }
+  throw new UploadedObjectError("Ảnh bìa phải là JPG, PNG hoặc WebP hợp lệ.");
+}
+
 function hasCompleteReservation(
   row: ReservationRow,
 ): row is ReservationRow & {
@@ -467,6 +636,7 @@ function hasCompleteReservation(
   format: "pdf" | "txt";
   mime_type: string;
   checksum_sha256: string;
+  book_size_bytes: number;
 } {
   return Boolean(
     row.book_id &&
@@ -475,7 +645,33 @@ function hasCompleteReservation(
       row.author &&
       row.format &&
       row.mime_type &&
-      row.checksum_sha256,
+      row.checksum_sha256 &&
+      row.book_size_bytes &&
+      ((row.cover_object_key === null &&
+        row.cover_mime_type === null &&
+        row.cover_size_bytes === null &&
+        row.cover_checksum_sha256 === null) ||
+        (Boolean(row.cover_object_key) &&
+          Boolean(row.cover_mime_type) &&
+          Boolean(row.cover_size_bytes) &&
+          Boolean(row.cover_checksum_sha256))),
+  );
+}
+
+function hasJpegSignature(bytes: Uint8Array): boolean {
+  return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+}
+
+function hasPngSignature(bytes: Uint8Array): boolean {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  return bytes.length >= signature.length && signature.every((value, index) => bytes[index] === value);
+}
+
+function hasWebpSignature(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 12 &&
+    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
   );
 }
 
@@ -524,6 +720,9 @@ function mapBookRow(row: BookRow): LibraryBook {
     format: row.format.toUpperCase() as "PDF" | "TXT",
     mimeType: row.mime_type,
     sizeBytes: row.size_bytes,
+    coverUrl: row.cover_object_key ? `/api/v1/books/${row.id}/cover` : null,
+    coverSizeBytes: row.cover_size_bytes ?? 0,
+    storageBytes: row.size_bytes + (row.cover_size_bytes ?? 0),
     progress: 0,
     locator: null,
     progressVersion: 0,

@@ -19,18 +19,32 @@ Reader browser
 
 Owner browser
   -> passphrase login + signed HttpOnly session
+  -> if no manual cover: local PDF.js worker renders page 1 to WebP/JPEG
   -> create upload reservation
-  -> presigned R2 PUT (browser uploads directly)
-  -> finalize endpoint validates R2 metadata/signature prefix
+  -> presigned R2 PUT for book + generated/manual cover (browser uploads directly)
+  -> finalize endpoint validates both R2 objects' metadata/signature prefix
   -> D1 batch publishes book and commits quota
 ```
 
 ## Why the upload is direct to R2
 
 Vercel Functions have a 4.5 MB request/response payload limit, while the book
-limit is 50 MiB. A Vercel Function therefore signs a five-minute PUT URL but
-does not proxy file bytes. Finalization performs server-side HEAD and prefix
-validation before publishing metadata. The bucket stays private.
+limit is 100 MiB for a book plus an optional 3 MiB cover. A Vercel Function
+therefore signs five-minute PUT URLs but does not proxy file bytes. Finalization
+performs server-side HEAD and prefix validation before publishing metadata. The
+bucket stays private.
+
+## Automatic PDF cover decision
+
+The owner browser uses the pinned Mozilla PDF.js distribution and a same-origin
+Web Worker to render page one into a bounded canvas. The canvas is re-encoded as
+WebP (or JPEG fallback) and sent through the existing cover upload flow. No PDF
+bytes pass through Vercel and no executable book HTML is inserted into the DOM.
+Annotations and XFA are disabled, CMaps/fonts are served locally, embedded image
+and canvas areas are bounded, and the server still verifies image size, MIME and
+magic bytes before publish. A manual image takes precedence. Encrypted, malformed
+or unusually expensive PDFs fall back to the existing generated artwork without
+blocking the book upload.
 
 ## Authentication and authorization
 
@@ -59,7 +73,10 @@ to the browser or committed to Git.
 - D1 keeps a 9,000,000,000-byte hard constraint across committed and reserved
   objects.
 - Upload reservation happens before the presigned PUT is returned.
-- Finalization checks object size, MIME type and PDF/TXT prefix before publish.
+- Finalization checks object size, MIME type and PDF/TXT/JPG/PNG/WebP prefix
+  before publish. SVG is denied to remove an active-content/XSS surface.
+- The reservation counts book and cover bytes together before issuing either
+  signed PUT URL.
 - Expired reservations are released and their orphan object key can be deleted.
 - Monthly Class A/Class B application circuit breakers remain enabled.
 - R2 CORS allows only the production Vercel origin and required GET/PUT/HEAD
@@ -69,6 +86,13 @@ to the browser or committed to Git.
 
 - Public-read means a visitor can redistribute a still-valid presigned URL.
 - Owner-supplied PDFs are not antivirus-scanned in the strict-free MVP.
+- A 100 MiB single PUT is not resumable; an interrupted upload must restart.
+- Rendering also reads the PDF in the owner browser, so a near-limit file can be
+  memory-intensive on older mobile devices. Desktop administration is preferred.
+- Automatic covers apply only to new uploads; existing coverless records are not
+  mutated by this release.
+- Image validation is signature-based rather than full decoder sandboxing;
+  upload remains owner-only and the 3 MiB limit reduces residual risk.
 - D1 REST adds network latency compared with a Worker binding.
 - Provider pricing and free-tier policy can change; application guards reduce
   usage but cannot guarantee a zero invoice outside the configured services.

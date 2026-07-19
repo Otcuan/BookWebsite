@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   FileValidationError,
+  MAX_COVER_BYTES,
+  MAX_UPLOAD_BYTES,
   safeSlug,
   validateBookFile,
+  validateCoverImage,
 } from "../lib/file-security.ts";
 import { hasSameOrigin } from "../lib/request-security.ts";
 
@@ -31,6 +34,31 @@ test("rejects text files containing NUL bytes", async () => {
     type: "text/plain",
   });
   await assert.rejects(validateBookFile(file), FileValidationError);
+});
+
+test("accepts a PNG cover only when extension, MIME and magic bytes agree", async () => {
+  const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const file = new File([signature], "cover.png", { type: "image/png" });
+  const result = await validateCoverImage(file);
+  assert.equal(result.extension, "png");
+  assert.equal(result.mimeType, "image/png");
+  assert.match(result.sha256, /^[a-f0-9]{64}$/);
+});
+
+test("rejects executable SVG covers", async () => {
+  const file = new File(["<svg><script>alert(1)</script></svg>"], "cover.svg", {
+    type: "image/svg+xml",
+  });
+  await assert.rejects(
+    validateCoverImage(file),
+    (error: unknown) =>
+      error instanceof FileValidationError && error.code === "UNSUPPORTED_COVER",
+  );
+});
+
+test("declares bounded book and cover upload limits", () => {
+  assert.equal(MAX_UPLOAD_BYTES, 100 * 1024 * 1024);
+  assert.equal(MAX_COVER_BYTES, 3 * 1024 * 1024);
 });
 
 test("creates bounded ASCII slugs", () => {
