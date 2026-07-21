@@ -19,6 +19,16 @@ Reader browser
   -> pinned PDF.js worker requests byte ranges
   -> one bounded canvas for the current page
 
+Reader download
+  -> same-origin content route
+  -> short-lived presigned R2 GET
+  -> bounded 100 MiB browser Blob
+  -> sanitized local filename
+
+Background music
+  -> same-origin static public/audio/background.mp3
+  -> lazy load only after an explicit reader action
+
 Owner browser
   -> passphrase login + signed HttpOnly session
   -> if no manual cover: local PDF.js worker renders page 1 to WebP/JPEG
@@ -64,12 +74,34 @@ zoom, keyboard arrows and horizontal swipe are application-owned behavior.
 Reading progress maps the current page to a percentage and remains local to the
 reader's device.
 
+The default scale is computed independently for every page from both the live
+viewport width and height. This makes portrait, landscape and mixed-orientation
+documents fit the frame after resize or device rotation. Fit-width remains an
+explicit option because whole-page text can be too small on narrow phones.
+
 PDF.js uses 256 KiB range requests with streaming and automatic prefetch
 disabled. R2 implements ranged GetObject, while bucket CORS explicitly permits
 the `Range` request header and exposes length/range response headers. Only the
 current page canvas exists; stale render tasks are cancelled, device pixel ratio
 is capped, and total rendered pixels are bounded. At zoom levels wider than the
 viewport, horizontal pan takes precedence over page-swipe navigation.
+
+## Download and background audio decisions
+
+New book PUT requests carry a server-generated `Content-Disposition: attachment`
+header with sanitized ASCII and RFC 5987 filenames. For compatibility with old
+objects that lack that metadata, the reader download button fetches through the
+existing five-minute signed GET route, converts the validated response to a
+same-origin Blob, and triggers a local filename. This avoids proxying a 100 MiB
+response through a Vercel Function, but requires browser memory roughly equal to
+the downloaded file size.
+
+Music is not an R2-backed upload feature. The owner places one reviewed MP3 at
+`public/audio/background.mp3` before deployment. It is lazy (`preload=none`),
+same-origin under CSP, looped, low-volume and started only by a user gesture.
+This avoids autoplay-policy differences, unwanted mobile bandwidth and a new
+untrusted-upload surface. Next.js client navigation keeps the root audio element
+mounted while moving between the library and reader.
 
 ## Authentication and authorization
 
@@ -107,7 +139,8 @@ to the browser or committed to Git.
 - Expired reservations are released and their orphan object key can be deleted.
 - Monthly Class A/Class B application circuit breakers remain enabled.
 - R2 CORS allows only the production Vercel origin, required GET/PUT/HEAD methods,
-  and the `Range` header needed for bounded PDF delivery.
+  and the `Range`/`Content-Disposition` headers needed for bounded PDF delivery
+  and attachment metadata.
 
 ## Residual risks
 
@@ -118,6 +151,12 @@ to the browser or committed to Git.
   so a near-limit file can be memory-intensive on older devices. Desktop
   administration is preferred. Public reading is range-based and one-page-at-a-time,
   but malformed or unusually structured PDFs can still require extra chunks.
+- Whole-page fit is device-independent at the layout level, but final sharpness
+  and render time still depend on screen density, available RAM/CPU and PDF
+  complexity. Canvas pixels and device scale remain capped to fail safely.
+- Blob-based download supports existing objects but temporarily holds the full
+  file in browser memory; this is a deliberate compatibility trade-off under the
+  100 MiB hard upload limit.
 - Automatic covers apply only to new uploads; existing coverless records are not
   mutated by this release.
 - Permanent R2 deletion cannot be undone. If R2 or D1 fails mid-flow, the

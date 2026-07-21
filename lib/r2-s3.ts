@@ -31,6 +31,7 @@ function bucketName(): string {
 export async function createPresignedPutUrl(input: {
   objectKey: string;
   mimeType: string;
+  contentDisposition?: string;
   expiresIn?: number;
 }): Promise<string> {
   return getSignedUrl(
@@ -39,6 +40,7 @@ export async function createPresignedPutUrl(input: {
       Bucket: bucketName(),
       Key: input.objectKey,
       ContentType: input.mimeType,
+      ContentDisposition: input.contentDisposition,
     }),
     { expiresIn: input.expiresIn ?? 300 },
   );

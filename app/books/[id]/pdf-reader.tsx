@@ -26,6 +26,7 @@ const MAX_ZOOM = 160;
 const ZOOM_STEP = 10;
 
 type PdfJs = typeof import("pdfjs-dist");
+type FitMode = "page" | "width";
 
 export function PdfReader({
   bookId,
@@ -50,7 +51,8 @@ export function PdfReader({
   const [pageCount, setPageCount] = useState(0);
   const [pageNumber, setPageNumber] = useState(1);
   const [zoom, setZoom] = useState(100);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [fitMode, setFitMode] = useState<FitMode>("page");
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [loadingPercent, setLoadingPercent] = useState<number | null>(null);
   const [rendering, setRendering] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -64,16 +66,19 @@ export function PdfReader({
     const scroller = pageScrollerRef.current;
     if (!scroller) return;
 
-    const updateWidth = () => setContainerWidth(scroller.clientWidth);
+    const updateSize = () => setContainerSize({
+      width: scroller.clientWidth,
+      height: scroller.clientHeight,
+    });
     if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateWidth);
-      queueMicrotask(updateWidth);
-      return () => window.removeEventListener("resize", updateWidth);
+      window.addEventListener("resize", updateSize);
+      queueMicrotask(updateSize);
+      return () => window.removeEventListener("resize", updateSize);
     }
 
-    const observer = new ResizeObserver(updateWidth);
+    const observer = new ResizeObserver(updateSize);
     observer.observe(scroller);
-    queueMicrotask(updateWidth);
+    queueMicrotask(updateSize);
     return () => observer.disconnect();
   }, []);
 
@@ -147,7 +152,12 @@ export function PdfReader({
   }, [bookId, retryKey]);
 
   useEffect(() => {
-    if (!pdfDocument || !pdfJsRef.current || containerWidth <= 0) return;
+    if (
+      !pdfDocument ||
+      !pdfJsRef.current ||
+      containerSize.width <= 0 ||
+      containerSize.height <= 0
+    ) return;
 
     const requestId = ++renderRequestRef.current;
     let page: PDFPageProxy | null = null;
@@ -186,9 +196,20 @@ export function PdfReader({
           throw new Error("INVALID_PAGE_SIZE");
         }
 
-        const horizontalPadding = containerWidth <= 580 ? 20 : 48;
-        const availableWidth = Math.max(240, Math.min(1100, containerWidth - horizontalPadding));
-        const fitScale = availableWidth / baseViewport.width;
+        const compactViewport = containerSize.width <= 580;
+        const horizontalPadding = compactViewport ? 20 : 48;
+        const verticalPadding = compactViewport ? 28 : 48;
+        const availableWidth = Math.max(
+          120,
+          Math.min(1100, containerSize.width - horizontalPadding),
+        );
+        const availableHeight = Math.max(80, containerSize.height - verticalPadding);
+        const fitWidthScale = availableWidth / baseViewport.width;
+        const fitPageScale = Math.min(
+          fitWidthScale,
+          availableHeight / baseViewport.height,
+        );
+        const fitScale = fitMode === "page" ? fitPageScale : fitWidthScale;
         const cssScale = fitScale * (zoom / 100);
         const cssViewport = page.getViewport({ scale: cssScale });
         const cssPixels = cssViewport.width * cssViewport.height;
@@ -230,7 +251,7 @@ export function PdfReader({
       renderRequestRef.current += 1;
       task?.cancel();
     };
-  }, [containerWidth, pageNumber, pdfDocument, zoom]);
+  }, [containerSize, fitMode, pageNumber, pdfDocument, zoom]);
 
   useEffect(() => {
     if (pageCount <= 0) return;
@@ -342,7 +363,7 @@ export function PdfReader({
           >
             −
           </button>
-          <button aria-label="Vừa chiều rộng" onClick={() => setZoom(100)} type="button">
+          <button aria-label="Đặt lại mức phóng" onClick={() => setZoom(100)} type="button">
             {zoom}%
           </button>
           <button
@@ -353,6 +374,20 @@ export function PdfReader({
           >
             +
           </button>
+          <label className="pdf-fit-control">
+            <span className="sr-only">Cách căn PDF vào khung</span>
+            <select
+              aria-label="Cách căn PDF vào khung"
+              onChange={(event) => {
+                setFitMode(event.target.value as FitMode);
+                setZoom(100);
+              }}
+              value={fitMode}
+            >
+              <option value="page">Vừa trang</option>
+              <option value="width">Vừa rộng</option>
+            </select>
+          </label>
         </div>
       </div>
 
@@ -385,7 +420,7 @@ export function PdfReader({
           )}
         </div>
       </div>
-      <p className="pdf-swipe-hint">Vuốt ngang để đổi trang · Dùng hai ngón tay để phóng to màn hình</p>
+      <p className="pdf-swipe-hint">Mặc định vừa toàn trang · Vuốt ngang để đổi trang</p>
     </div>
   );
 }

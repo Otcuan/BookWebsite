@@ -10,6 +10,8 @@ Cloudflare D1; sách và ảnh bìa nằm trong R2 private bucket.
 Bạn đọc -> Vercel / Next.js -> D1 REST (danh mục)
 Bạn đọc -> content route -> presigned GET 5 phút -> R2 private
          -> PDF.js tải theo Range và chỉ render trang hiện tại vào canvas
+Bạn đọc -> nút tải PDF -> fetch signed R2 -> Blob cùng origin -> lưu về thiết bị
+Bạn đọc -> nút nhạc -> public/audio/background.mp3 cùng origin (không autoplay)
 Tuấn -> HttpOnly owner session -> upload reservation
       -> PDF.js trong trình duyệt render trang 1 thành ảnh (nếu không chọn bìa)
       -> presigned PUT sách/bìa 5 phút -> R2 -> finalize -> D1 publish
@@ -25,9 +27,10 @@ upload là bước nâng cấp sau MVP. Chi tiết và trade-off ở `docs/verce
 
 - Catalog responsive có bìa tự tạo từ trang đầu PDF, quote đổi theo lượt mở trang,
   đồng hồ Việt Nam và tìm kiếm/sắp xếp. Trình đọc PDF theo từng trang có nút
-  trước/sau, nhập số trang, zoom, phím mũi tên và vuốt ngang trên mobile; TXT có
-  cỡ chữ, giãn dòng và theme. Ảnh JPG/PNG/WebP chọn thủ công là tùy chọn ghi đè;
-  TXT dùng bìa minh họa mặc định.
+  trước/sau, nhập số trang, zoom, phím mũi tên và vuốt ngang trên mobile. Mỗi
+  trang PDF mặc định tự vừa cả chiều rộng lẫn chiều cao của khung; người đọc có
+  thể chuyển sang `Vừa rộng`. TXT có cỡ chữ, giãn dòng và theme. Ảnh JPG/PNG/WebP
+  chọn thủ công là tùy chọn ghi đè; TXT dùng bìa minh họa mặc định.
 - Nguồn và ghi chú bản dịch quote nằm tại `docs/quote-sources.md`.
 - Tiến độ đọc lưu trong `localStorage` của từng thiết bị; không phải danh tính.
 - Owner passphrase được băm PBKDF2-HMAC-SHA256, 600.000 vòng; không lưu plaintext.
@@ -43,6 +46,11 @@ upload là bước nâng cấp sau MVP. Chi tiết và trade-off ở `docs/verce
   khi đổi trang và giới hạn số pixel canvas. Annotation và XFA bị tắt; không tải
   mã từ CDN bên thứ ba.
 - R2 private, URL GET/PUT ký ngắn hạn; CSP và R2 CORS giới hạn origin.
+- Nút tải PDF lấy file qua signed URL rồi tạo Blob cục bộ để sách cũ lẫn mới đều
+  có tên tải xuống an toàn. Upload sách mới còn lưu `Content-Disposition` do
+  server sinh; tiêu đề không được chèn trực tiếp vào HTTP header.
+- Nhạc nền là MP3 tĩnh cùng origin, `preload=none`, chỉ phát sau khi người đọc bấm
+  và có nút tắt. CSP không cho tải media từ domain ngoài.
 - Bạn đọc không nhận thống kê dung lượng R2 trong HTML hoặc API catalog công khai;
   quota chỉ được truy vấn và hiển thị khi phiên owner hợp lệ.
 - D1 CHECK constraint giữ tổng committed + reserved không quá `9,000,000,000` byte.
@@ -90,6 +98,18 @@ toàn bộ `infrastructure/r2-cors.json` trong R2 > bucket > Settings > CORS Pol
 sau khi thay URL mẫu bằng đúng URL Vercel Production. Cấu hình mới cho phép
 request header `Range` và cho trình duyệt đọc `Accept-Ranges`, `Content-Range`,
 `Content-Length`; thiếu bước này PDF có thể không mở hoặc phải tải cả tệp.
+Phiên bản có nút download còn cần `Content-Disposition` trong `AllowedHeaders`;
+hãy dán lại toàn bộ file CORS mới thay vì chỉ sửa từng dòng.
+
+## Thêm nhạc nền
+
+1. Đổi tên file của bạn thành chính xác `background.mp3`.
+2. Chép file vào `public/audio/background.mp3`.
+3. Commit và push lên GitHub để Vercel deploy lại.
+
+Không cần D1 migration hoặc Environment Variable. Nhạc mặc định tắt vì trình
+duyệt mobile thường chặn âm thanh autoplay; người đọc bấm nút `♪` để bật/tắt.
+Nên nén MP3 ở 96–160 kbps và chỉ dùng nhạc bạn có quyền phát/chia sẻ.
 
 ## Tạo owner secret
 
@@ -134,7 +154,8 @@ Test bao gồm build production, file signature/UTF-8, CSRF fail-closed, migrati
 hard quota, cost budget, security headers/CORS, đóng gói PDF.js worker/font và
 luồng xóa/cascade/cập nhật dung lượng. Test trình đọc còn kiểm tra không dùng
 `iframe`, chỉ render theo trang, có giới hạn canvas, tắt annotation/XFA và không
-lộ quota qua catalog public.
+lộ quota qua catalog public. Bộ test cũng kiểm tra fit toàn trang, tên download
+được làm sạch, upload header do server sinh và nhạc không autoplay/tải từ ngoài.
 
 ## Giới hạn và chi phí
 
@@ -150,6 +171,11 @@ lộ quota qua catalog public.
   toàn tệp và chỉ render một trang để giảm RAM; một số PDF có cấu trúc bất thường
   vẫn có thể cần tải thêm nhiều đoạn. Luồng tạo bìa của tệp gần 100 MiB có thể
   dùng nhiều bộ nhớ trên thiết bị quản trị, vì vậy nên upload bằng desktop.
+- Khi bấm tải PDF, Blob được tạo trong trình duyệt để hỗ trợ cả sách cũ. File gần
+  100 MiB có thể cần thêm khoảng 100 MiB RAM trong lúc chuẩn bị lưu; điện thoại
+  rất cũ có thể tải chậm hoặc bị trình duyệt dừng tab.
+- Fit toàn trang bảo đảm không cắt mép nhưng chữ có thể nhỏ trên màn hình hẹp;
+  chọn `Vừa rộng` hoặc tăng zoom khi cần đọc chữ lớn hơn.
 - Guard trong ứng dụng giảm nguy cơ vượt free tier nhưng không thể cam kết `$0`
   tuyệt đối khi pricing/quota của nhà cung cấp thay đổi. Bật usage/billing alert.
 - Xóa vĩnh viễn file R2 không thể hoàn tác; phải tải bản sao về máy trước nếu cần.

@@ -2,10 +2,10 @@
   {
     "AllowedOrigins": [
       "http://localhost:3000",
-      "https://utanbook.vercel.app"
+      "https://your-project.vercel.app"
     ],
     "AllowedMethods": ["GET", "PUT", "HEAD"],
-    "AllowedHeaders": ["Content-Type", "Range"],
+    "AllowedHeaders": ["Content-Type", "Content-Disposition", "Range"],
     "ExposeHeaders": [
       "ETag",
       "Content-Length",

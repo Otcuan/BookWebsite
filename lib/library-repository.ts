@@ -5,6 +5,7 @@ import {
   MAX_UPLOAD_BYTES,
   safeSlug,
 } from "@/lib/file-security";
+import { buildAttachmentDisposition } from "@/lib/content-disposition";
 import {
   createPresignedPutUrl,
   deleteR2Object,
@@ -45,6 +46,10 @@ export type StorageStats = {
 export type UploadReservation = {
   reservationId: string;
   uploadUrl: string;
+  bookUploadHeaders: {
+    "Content-Type": string;
+    "Content-Disposition": string;
+  };
   coverUploadUrl: string | null;
   expiresAt: string;
 };
@@ -351,10 +356,12 @@ export async function createUploadReservation(input: {
   }
 
   try {
+    const bookContentDisposition = buildAttachmentDisposition(input.title, file.format);
     const [uploadUrl, coverUploadUrl] = await Promise.all([
       createPresignedPutUrl({
         objectKey,
         mimeType: file.mimeType,
+        contentDisposition: bookContentDisposition,
         expiresIn: 300,
       }),
       coverObjectKey && cover
@@ -379,7 +386,16 @@ export async function createUploadReservation(input: {
         format: file.format,
       },
     });
-    return { reservationId, uploadUrl, coverUploadUrl, expiresAt };
+    return {
+      reservationId,
+      uploadUrl,
+      bookUploadHeaders: {
+        "Content-Type": file.mimeType,
+        "Content-Disposition": bookContentDisposition,
+      },
+      coverUploadUrl,
+      expiresAt,
+    };
   } catch (error) {
     await releaseReservation(reservationId, totalBytes);
     throw error;

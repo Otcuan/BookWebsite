@@ -45,6 +45,7 @@
 }
 
 .pdf-reader-controls button,
+.pdf-reader-controls select,
 .pdf-page-indicator input,
 .pdf-reader-error button {
   min-width: 44px;
@@ -88,6 +89,13 @@
   font-size: 12px;
 }
 
+.pdf-fit-control select {
+  min-height: 44px;
+  padding: 0 28px 0 10px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .pdf-page-scroll {
   min-width: 0;
   min-height: 0;
@@ -101,16 +109,19 @@
 .pdf-canvas-wrap {
   position: relative;
   display: flex;
-  min-width: min-content;
+  width: max-content;
+  min-width: 100%;
   min-height: 100%;
   align-items: flex-start;
   justify-content: center;
   padding: 24px;
+  box-sizing: border-box;
 }
 
 .pdf-canvas-wrap canvas {
   display: block;
   flex: 0 0 auto;
+  margin: auto;
   max-width: none;
   background: white;
   box-shadow: 0 16px 50px rgb(20 28 24 / 18%);
@@ -197,6 +208,21 @@
     font-size: 11px;
   }
 
+  .reader-pdf-shell .reader-download {
+    width: 44px;
+    padding: 0;
+  }
+
+  .reader-pdf-shell .reader-download > span:last-child {
+    position: absolute;
+    overflow: hidden;
+    width: 1px;
+    height: 1px;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
   .pdf-reader-controls {
     min-height: 54px;
     flex-wrap: wrap;
@@ -206,6 +232,10 @@
   .pdf-reader-controls button,
   .pdf-page-indicator input {
     min-width: 42px;
+    min-height: 42px;
+  }
+
+  .pdf-fit-control select {
     min-height: 42px;
   }
 

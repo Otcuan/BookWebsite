@@ -15,8 +15,8 @@
     "auth:generate": "node scripts/generate-owner-secrets.mjs"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1090.0",
-    "@aws-sdk/s3-request-presigner": "3.1090.0",
+    "@aws-sdk/client-s3": "3.1091.0",
+    "@aws-sdk/s3-request-presigner": "3.1091.0",
     "drizzle-orm": "0.45.2",
     "next": "16.2.10",
     "pdfjs-dist": "6.1.200",

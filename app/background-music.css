@@ -1,0 +1,72 @@
+.background-music-control {
+  position: fixed;
+  z-index: 40;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(52px, calc(env(safe-area-inset-bottom) + 16px));
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.background-music-control button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 15px;
+  border: 1px solid rgb(255 255 255 / 38%);
+  border-radius: 999px;
+  background: #345c4b;
+  box-shadow: 0 10px 30px rgb(21 36 30 / 24%);
+  color: white;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  touch-action: manipulation;
+}
+
+.background-music-control button > span:first-child {
+  font-size: 20px;
+}
+
+.background-music-control button[aria-pressed="true"] {
+  background: #244438;
+}
+
+.background-music-control button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.background-music-notice {
+  max-width: min(280px, calc(100vw - 32px));
+  padding: 9px 12px;
+  border: 1px solid #d8d2c5;
+  border-radius: 10px;
+  background: #fffdf8;
+  box-shadow: 0 8px 28px rgb(31 42 36 / 14%);
+  color: #4f5853;
+  font-size: 11px;
+}
+
+@media (max-width: 580px) {
+  .background-music-control {
+    right: max(10px, env(safe-area-inset-right));
+  }
+
+  .background-music-control button {
+    width: 46px;
+    padding: 0;
+  }
+
+  .background-music-control button > span:last-child {
+    position: absolute;
+    overflow: hidden;
+    width: 1px;
+    height: 1px;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

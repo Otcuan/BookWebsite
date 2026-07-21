@@ -7,6 +7,7 @@ const pdfReader = readFileSync("app/books/[id]/pdf-reader.tsx", "utf8");
 const dashboard = readFileSync("app/library-dashboard.tsx", "utf8");
 const homePage = readFileSync("app/page.tsx", "utf8");
 const publicBooksApi = readFileSync("app/api/v1/books/route.ts", "utf8");
+const readerCss = readFileSync("app/mobile-pdf-reader.css", "utf8");
 
 test("PDF reading uses the paged canvas reader instead of a mobile iframe", () => {
   assert.match(readerClient, /<PdfReader/);
@@ -31,6 +32,16 @@ test("PDF network loading is range-based without automatic full-file prefetch", 
   assert.match(pdfReader, /disableStream: true/);
   assert.match(pdfReader, /disableAutoFetch: true/);
   assert.match(pdfReader, /rangeChunkSize: RANGE_CHUNK_SIZE/);
+});
+
+test("every PDF page defaults to fitting both available width and height", () => {
+  assert.match(pdfReader, /useState<FitMode>\("page"\)/);
+  assert.match(pdfReader, /height: scroller\.clientHeight/);
+  assert.match(pdfReader, /Math\.min\(\s*fitWidthScale,\s*availableHeight \/ baseViewport\.height/);
+  assert.match(pdfReader, /<option value="page">Vừa trang<\/option>/);
+  assert.match(pdfReader, /<option value="width">Vừa rộng<\/option>/);
+  assert.match(readerCss, /width: max-content/);
+  assert.match(readerCss, /margin: auto/);
 });
 
 test("public readers receive neither the quota panel nor real storage metadata", () => {

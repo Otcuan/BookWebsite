@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./delete-book.css";
 import "./mobile-pdf-reader.css";
+import "./background-music.css";
+import { BackgroundMusic } from "./background-music";
 
 export const metadata: Metadata = {
   title: "Tủ sách của Tuấn",
@@ -16,7 +18,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="vi" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        {children}
+        <BackgroundMusic />
+      </body>
     </html>
   );
 }

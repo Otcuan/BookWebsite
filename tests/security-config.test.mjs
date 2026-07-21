@@ -20,6 +20,7 @@ test("Vercel responses declare the security header baseline", () => {
   assert.match(nextConfig, /object-src 'none'/);
   assert.match(nextConfig, /img-src 'self' data: https:\/\/\*\.r2\.cloudflarestorage\.com/);
   assert.match(nextConfig, /worker-src 'self'/);
+  assert.match(nextConfig, /media-src 'self'/);
 });
 
 test("unsafe-eval is enabled only for the React development runtime", () => {
@@ -36,7 +37,11 @@ test("R2 CORS is origin-scoped and never wildcarded", () => {
   const rule = cors[0];
   assert.equal(rule.AllowedOrigins.includes("*"), false);
   assert.deepEqual(rule.AllowedMethods, ["GET", "PUT", "HEAD"]);
-  assert.deepEqual(rule.AllowedHeaders, ["Content-Type", "Range"]);
+  assert.deepEqual(rule.AllowedHeaders, [
+    "Content-Type",
+    "Content-Disposition",
+    "Range",
+  ]);
   assert.deepEqual(rule.ExposeHeaders, [
     "ETag",
     "Content-Length",

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { validateBookFile, validateCoverImage } from "@/lib/file-security";
 import type { LibraryBook, StorageStats } from "@/lib/library-repository";
@@ -157,6 +158,10 @@ export function LibraryDashboard({
         data?: {
           reservationId: string;
           uploadUrl: string;
+          bookUploadHeaders: {
+            "Content-Type": string;
+            "Content-Disposition": string;
+          };
           coverUploadUrl: string | null;
         };
         error?: { message?: string };
@@ -168,7 +173,7 @@ export function LibraryDashboard({
       setUploadNotice("Đang chuyển tệp trực tiếp đến kho R2…");
       const uploadResponse = await fetch(sessionPayload.data.uploadUrl, {
         method: "PUT",
-        headers: { "Content-Type": accepted.mimeType },
+        headers: sessionPayload.data.bookUploadHeaders,
         body: rawFile,
       });
       if (!uploadResponse.ok) {
@@ -404,7 +409,7 @@ export function LibraryDashboard({
 
             <div className="continue-grid">
               {continueBooks.map((book) => (
-                <a className="continue-card" href={`/books/${book.id}`} key={book.id}>
+                <Link className="continue-card" href={`/books/${book.id}`} key={book.id}>
                   <BookCover coverUrl={book.coverUrl} tone={coverTone(book.id)} title={book.title} />
                   <div className="continue-info">
                     <div>
@@ -422,7 +427,7 @@ export function LibraryDashboard({
                       </div>
                     </div>
                   </div>
-                </a>
+                </Link>
               ))}
             </div>
           </section>
@@ -489,9 +494,9 @@ export function LibraryDashboard({
                         {tileContent}
                       </div>
                     ) : (
-                      <a className="book-tile-link" href={`/books/${book.id}`}>
+                      <Link className="book-tile-link" href={`/books/${book.id}`}>
                         {tileContent}
-                      </a>
+                      </Link>
                     )}
                     {book.deletionPending && (
                       <span className="deletion-badge">Đang chờ xóa</span>

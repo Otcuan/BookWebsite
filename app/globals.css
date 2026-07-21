@@ -939,8 +939,13 @@ button {
 }
 
 .reader-controls button,
-.reader-controls select {
+.reader-controls select,
+.reader-controls a {
+  display: inline-flex;
   min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 0 11px;
   border: 1px solid color-mix(in srgb, var(--reader-ink) 20%, transparent);
   border-radius: 9px;

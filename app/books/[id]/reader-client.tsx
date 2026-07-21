@@ -15,6 +15,8 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
   const [loadError, setLoadError] = useState("");
   const [progress, setProgress] = useState(book.progress);
   const [progressReady, setProgressReady] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -53,6 +55,35 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
     localStorage.setItem(`reading-progress:${book.id}`, String(nextProgress));
   }, [book.id]);
 
+  async function downloadPdf() {
+    if (downloading || book.format !== "PDF") return;
+    setDownloading(true);
+    setDownloadError("");
+
+    try {
+      const response = await fetch(
+        `/api/v1/books/${encodeURIComponent(book.id)}/content`,
+        { credentials: "same-origin" },
+      );
+      if (!response.ok) throw new Error("DOWNLOAD_FAILED");
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = safePdfFilename(book.title);
+      anchor.hidden = true;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch {
+      setDownloadError("Không thể tải PDF. Hãy kiểm tra kết nối và thử lại.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <main className={`reader-shell reader-${theme}${book.format === "PDF" ? " reader-pdf-shell" : ""}`}>
       <header className="reader-toolbar">
@@ -64,6 +95,19 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
           <span>{book.author}</span>
         </div>
         <div className="reader-controls" aria-label="Tùy chỉnh trình đọc">
+          {book.format === "PDF" && (
+            <button
+              className="reader-download"
+              disabled={downloading}
+              onClick={downloadPdf}
+              title={downloadError || "Tải PDF về máy"}
+              type="button"
+            >
+              <span aria-hidden="true">⇩</span>
+              <span>{downloading ? "Đang tải…" : "Tải PDF"}</span>
+            </button>
+          )}
+          {downloadError && <span className="sr-only" role="alert">{downloadError}</span>}
           {book.format === "TXT" && (
             <>
               <button
@@ -146,4 +190,14 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
       )}
     </main>
   );
+}
+
+function safePdfFilename(title: string) {
+  const base = title
+    .replace(/\.pdf$/i, "")
+    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^[.\s-]+|[.\s-]+$/g, "")
+    .slice(0, 120) || "sach";
+  return `${base}.pdf`;
 }
