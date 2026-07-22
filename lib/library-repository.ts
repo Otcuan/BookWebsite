@@ -17,6 +17,7 @@ import {
   consumeMonthlyBudget,
   R2_CLASS_A_MONTHLY_APP_LIMIT,
 } from "@/lib/cost-budget";
+import { parseStoredBookTags } from "@/lib/book-metadata";
 
 export type LibraryBook = {
   id: string;
@@ -24,6 +25,7 @@ export type LibraryBook = {
   title: string;
   author: string;
   description: string | null;
+  tags: string[];
   format: "PDF" | "TXT";
   mimeType: string;
   sizeBytes: number;
@@ -33,6 +35,7 @@ export type LibraryBook = {
   progress: number;
   locator: string | null;
   progressVersion: number;
+  version: number;
   updatedAt: string;
   deletionPending: boolean;
 };
@@ -60,11 +63,13 @@ type BookRow = {
   title: string;
   author: string;
   description: string | null;
+  tags_json: string;
   format: "pdf" | "txt";
   mime_type: string;
   size_bytes: number;
   cover_object_key: string | null;
   cover_size_bytes: number | null;
+  version: number;
   updated_at: string;
   deleted_at: string | null;
 };
@@ -99,12 +104,32 @@ type ReservationRow = {
   expires_at: string;
 };
 
+type DuplicateBookRow = {
+  id: string | null;
+  title: string;
+  author: string | null;
+};
+
 export class StorageQuotaError extends Error {}
 export class FreeTierBudgetError extends Error {}
 export class UploadReservationError extends Error {}
 export class UploadedObjectError extends Error {}
 export class BookNotFoundError extends Error {}
 export class BookDeletionPendingError extends Error {}
+export class DuplicateBookError extends Error {
+  constructor(
+    message: string,
+    readonly existingBookId: string | null,
+    readonly existingTitle: string,
+  ) {
+    super(message);
+  }
+}
+export class BookVersionConflictError extends Error {
+  constructor(readonly currentVersion: number) {
+    super("Metadata sách đã được thay đổi ở một phiên khác.");
+  }
+}
 
 export async function listPublishedBooks(
   query = "",
@@ -113,18 +138,19 @@ export async function listPublishedBooks(
   const DB = getDatabase();
   const search = `%${escapeLike(query.trim().toLowerCase())}%`;
   const result = await DB.prepare(
-    `SELECT id, slug, title, author, description, format,
-            mime_type, size_bytes, cover_object_key, cover_size_bytes,
+    `SELECT id, slug, title, author, description, tags_json, format,
+            mime_type, size_bytes, cover_object_key, cover_size_bytes, version,
             updated_at, deleted_at
      FROM books
      WHERE status = 'published'
        AND (deleted_at IS NULL OR ? = 1)
        AND (? = '%%' OR lower(title) LIKE ? ESCAPE '\\'
-            OR lower(author) LIKE ? ESCAPE '\\')
+            OR lower(author) LIKE ? ESCAPE '\\'
+            OR lower(tags_json) LIKE ? ESCAPE '\\')
      ORDER BY updated_at DESC
      LIMIT 200`,
   )
-    .bind(options.includeDeletionPending ? 1 : 0, search, search, search)
+    .bind(options.includeDeletionPending ? 1 : 0, search, search, search, search)
     .all<BookRow>();
 
   return (result.results ?? []).map(mapBookRow);
@@ -133,8 +159,8 @@ export async function listPublishedBooks(
 export async function getPublishedBook(bookId: string): Promise<LibraryBook | null> {
   const DB = getDatabase();
   const row = await DB.prepare(
-    `SELECT id, slug, title, author, description, format,
-            mime_type, size_bytes, cover_object_key, cover_size_bytes,
+    `SELECT id, slug, title, author, description, tags_json, format,
+            mime_type, size_bytes, cover_object_key, cover_size_bytes, version,
             updated_at, deleted_at
      FROM books
      WHERE id = ? AND status = 'published' AND deleted_at IS NULL
@@ -162,6 +188,84 @@ export async function getStorageStats(): Promise<StorageStats> {
     reservedBytes: row.reserved_bytes,
     hardLimitBytes: row.hard_limit_bytes,
   };
+}
+
+export async function updateBookMetadata(input: {
+  viewer: Viewer;
+  bookId: string;
+  title: string;
+  author: string;
+  description: string | null;
+  tags: string[];
+  expectedVersion: number;
+  requestId: string;
+}): Promise<LibraryBook> {
+  const DB = getDatabase();
+  const slug = `${safeSlug(input.title)}-${input.bookId.slice(0, 8)}`;
+  const updated = await DB.prepare(
+    `UPDATE books
+     SET title = ?, author = ?, description = ?, tags_json = ?, slug = ?,
+         version = version + 1, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND status = 'published' AND deleted_at IS NULL
+       AND version = ?
+     RETURNING id, slug, title, author, description, tags_json, format,
+               mime_type, size_bytes, cover_object_key, cover_size_bytes,
+               version, updated_at, deleted_at`,
+  )
+    .bind(
+      input.title,
+      input.author,
+      input.description,
+      JSON.stringify(input.tags),
+      slug,
+      input.bookId,
+      input.expectedVersion,
+    )
+    .first<BookRow>();
+
+  if (!updated) {
+    const current = await DB.prepare(
+      `SELECT version FROM books
+       WHERE id = ? AND status = 'published' AND deleted_at IS NULL
+       LIMIT 1`,
+    )
+      .bind(input.bookId)
+      .first<{ version: number }>();
+    if (!current) throw new BookNotFoundError("Không tìm thấy sách cần chỉnh sửa.");
+    await writeAudit(DB, {
+      actorEmail: input.viewer.email,
+      action: "book.metadata_update",
+      targetType: "book",
+      targetId: input.bookId,
+      outcome: "denied",
+      requestId: input.requestId,
+      metadata: {
+        reason: "version_conflict",
+        expectedVersion: input.expectedVersion,
+        currentVersion: current.version,
+      },
+    }).catch(() => undefined);
+    throw new BookVersionConflictError(current.version);
+  }
+
+  await writeAudit(DB, {
+    actorEmail: input.viewer.email,
+    action: "book.metadata_update",
+    targetType: "book",
+    targetId: input.bookId,
+    outcome: "success",
+    requestId: input.requestId,
+    metadata: {
+      previousVersion: input.expectedVersion,
+      currentVersion: updated.version,
+      titleLength: updated.title.length,
+      authorLength: updated.author.length,
+      descriptionLength: updated.description?.length ?? 0,
+      tagCount: input.tags.length,
+    },
+  }).catch(() => undefined);
+
+  return mapBookRow(updated);
 }
 
 export async function deleteBookPermanently(input: {
@@ -294,6 +398,22 @@ export async function createUploadReservation(input: {
   if (!Number.isSafeInteger(totalBytes) || totalBytes <= 0) {
     throw new UploadedObjectError("Tổng kích thước tệp không hợp lệ.");
   }
+  await releaseExpiredReservations();
+  const duplicate = await findDuplicateBook(
+    DB,
+    input.sha256,
+    input.viewer.email,
+  );
+  if (duplicate) {
+    throw new DuplicateBookError(
+      duplicate.id
+        ? `Tệp này trùng hoàn toàn với sách “${duplicate.title}” đã có trong kho.`
+        : `Tệp này đang có một phiên tải lên chưa hết hạn cho “${duplicate.title}”. Hãy chờ tối đa 5 phút rồi thử lại.`,
+      duplicate.id,
+      duplicate.title,
+    );
+  }
+
   const bookId = crypto.randomUUID();
   const reservationId = crypto.randomUUID();
   const objectKey = `books/${bookId}.${file.format}`;
@@ -311,7 +431,6 @@ export async function createUploadReservation(input: {
     );
   }
 
-  await releaseExpiredReservations();
   try {
     await DB.batch([
       DB.prepare(
@@ -520,6 +639,7 @@ export async function finalizeUpload(input: {
     title: reservation.title,
     author: reservation.author,
     description: reservation.description,
+    tags: [],
     format: reservation.format.toUpperCase() as "PDF" | "TXT",
     mimeType: reservation.mime_type,
     sizeBytes: reservation.book_size_bytes,
@@ -531,6 +651,7 @@ export async function finalizeUpload(input: {
     progress: 0,
     locator: null,
     progressVersion: 0,
+    version: 1,
     updatedAt: new Date().toISOString(),
     deletionPending: false,
   };
@@ -707,6 +828,34 @@ async function releaseExpiredReservations() {
   }
 }
 
+async function findDuplicateBook(
+  DB: D1DatabaseLike,
+  checksumSha256: string,
+  principalEmail: string,
+): Promise<DuplicateBookRow | null> {
+  return DB.prepare(
+    `SELECT id, title, author
+     FROM (
+       SELECT id, title, author, 0 AS priority
+       FROM books
+       WHERE checksum_sha256 = ?
+         AND status = 'published'
+         AND deleted_at IS NULL
+       UNION ALL
+       SELECT book_id AS id, title, author, 1 AS priority
+       FROM upload_reservations
+       WHERE checksum_sha256 = ?
+         AND principal_email = ?
+         AND status = 'reserved'
+         AND expires_at > CURRENT_TIMESTAMP
+     )
+     ORDER BY priority ASC
+     LIMIT 1`,
+  )
+    .bind(checksumSha256, checksumSha256, principalEmail)
+    .first<DuplicateBookRow>();
+}
+
 function validateUploadMetadata(input: {
   fileName: string;
   sizeBytes: number;
@@ -859,6 +1008,7 @@ function mapBookRow(row: BookRow): LibraryBook {
     title: row.title,
     author: row.author,
     description: row.description,
+    tags: parseStoredBookTags(row.tags_json),
     format: row.format.toUpperCase() as "PDF" | "TXT",
     mimeType: row.mime_type,
     sizeBytes: row.size_bytes,
@@ -870,6 +1020,7 @@ function mapBookRow(row: BookRow): LibraryBook {
     progress: 0,
     locator: null,
     progressVersion: 0,
+    version: row.version,
     updatedAt: row.updated_at,
     deletionPending,
   };

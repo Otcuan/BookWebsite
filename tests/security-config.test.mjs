@@ -21,6 +21,7 @@ test("Vercel responses declare the security header baseline", () => {
   assert.match(nextConfig, /img-src 'self' data: https:\/\/\*\.r2\.cloudflarestorage\.com/);
   assert.match(nextConfig, /worker-src 'self'/);
   assert.match(nextConfig, /media-src 'self'/);
+  assert.match(nextConfig, /autoplay=\(self\)/);
 });
 
 test("unsafe-eval is enabled only for the React development runtime", () => {

@@ -34,6 +34,14 @@ test("PDF network loading is range-based without automatic full-file prefetch", 
   assert.match(pdfReader, /rangeChunkSize: RANGE_CHUNK_SIZE/);
 });
 
+test("PDF reader exposes outline/search/local tools and page-specific sharing", () => {
+  assert.match(pdfReader, /<PdfToolsDrawer/);
+  assert.match(pdfReader, /pageFromSearchParams/);
+  assert.match(pdfReader, /url\.searchParams\.set\("page"/);
+  assert.match(pdfReader, /navigator\.share/);
+  assert.match(pdfReader, /navigator\.clipboard/);
+});
+
 test("every PDF page defaults to fitting both available width and height", () => {
   assert.match(pdfReader, /useState<FitMode>\("page"\)/);
   assert.match(pdfReader, /height: scroller\.clientHeight/);

@@ -21,9 +21,13 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
-      const stored = Number(localStorage.getItem(`reading-progress:${book.id}`));
-      if (active && Number.isFinite(stored)) {
-        setProgress(Math.min(100, Math.max(0, stored)));
+      try {
+        const stored = Number(localStorage.getItem(`reading-progress:${book.id}`));
+        if (active && Number.isFinite(stored)) {
+          setProgress(Math.min(100, Math.max(0, stored)));
+        }
+      } catch {
+        // Storage can be blocked; reading still works without persisted progress.
       }
       if (active) setProgressReady(true);
     });
@@ -52,7 +56,11 @@ export function ReaderClient({ book }: { book: LibraryBook }) {
 
   const scheduleProgress = useCallback((nextProgress: number) => {
     setProgress(nextProgress);
-    localStorage.setItem(`reading-progress:${book.id}`, String(nextProgress));
+    try {
+      localStorage.setItem(`reading-progress:${book.id}`, String(nextProgress));
+    } catch {
+      // Keep in-memory progress when browser storage is unavailable.
+    }
   }, [book.id]);
 
   async function downloadPdf() {

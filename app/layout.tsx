@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./delete-book.css";
+import "./edit-book.css";
 import "./mobile-pdf-reader.css";
+import "./pdf-tools.css";
 import "./background-music.css";
 import { BackgroundMusic } from "./background-music";
 

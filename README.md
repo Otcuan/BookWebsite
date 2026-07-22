@@ -69,11 +69,19 @@ npm run dev
 
 Không commit `.env.local`.
 
+Kiểm tra trước khi push:
+
+```bash
+npm run lint
+npm test
+npm run security:audit
+```
+
 ## Khởi tạo Cloudflare
 
 1. Tạo D1 database và chạy lần lượt:
    `drizzle/0000_tearful_wasp.sql`, `drizzle/0001_colossal_misty_knight.sql`,
-   `drizzle/0002_amazing_whizzer.sql`.
+   `drizzle/0002_amazing_whizzer.sql`, `drizzle/0003_fast_yellow_claw.sql`.
 2. Tạo R2 bucket với storage class `Standard` và giữ bucket private. Free tier
    không áp dụng cho `Infrequent Access`.
 3. Tạo D1 API token chỉ có D1 Read/Write cho database này.
@@ -101,15 +109,51 @@ request header `Range` và cho trình duyệt đọc `Accept-Ranges`, `Content-R
 Phiên bản có nút download còn cần `Content-Disposition` trong `AllowedHeaders`;
 hãy dán lại toàn bộ file CORS mới thay vì chỉ sửa từng dòng.
 
+### Công cụ PDF và chỉnh metadata
+
+Phiên bản này không cần migration D1, biến môi trường hay thay đổi CORS mới:
+
+- mở một PDF rồi bấm **Công cụ** để xem mục lục nhúng, tìm chữ, tạo bookmark
+  và ghi chú;
+- nút **↗** tạo link có `?page=N`, nên người nhận mở đúng trang đang đọc;
+- bookmark và ghi chú chỉ lưu trong `localStorage` của đúng trình duyệt/thiết bị,
+  không đồng bộ và có thể mất khi xóa dữ liệu website;
+- PDF scan chỉ gồm ảnh sẽ không tìm được chữ nếu chưa OCR;
+- khi đăng nhập admin, nút **✎** trên mỗi sách cho phép sửa tiêu đề, tác giả và
+  mô tả; hai tab sửa đồng thời được bảo vệ bằng version conflict;
+- upload mới bị chặn trước R2 nếu SHA-256 trùng hoàn toàn với một sách đã có.
+
+Phát hiện trùng chỉ nhận ra hai tệp có byte giống hệt nhau. Hai bản PDF của cùng
+một sách nhưng được scan, nén hoặc chỉnh metadata khác nhau vẫn có checksum khác.
+Chi tiết kiến trúc và threat model nằm ở
+`docs/phase-reader-tools-and-metadata.md`.
+
+### Tags và chỉnh sửa sách
+
+Trước khi deploy phiên bản này lên kho đang chạy, mở D1 Console và Execute đúng
+một câu SQL sau (không nhập tên file):
+
+```sql
+ALTER TABLE `books` ADD `tags_json` text DEFAULT '[]' NOT NULL;
+```
+
+Sau đó mới push code để Vercel deploy. Sách cũ được gán danh sách tags rỗng,
+không bị xóa hay đổi file. Khi đăng nhập admin, nút **✎** cho phép sửa tên sách,
+tác giả, tags và mô tả. Tags cách nhau bằng dấu phẩy, tối đa 10 tags và 32 ký tự
+mỗi tag; người đọc có thể tìm sách theo tag. Chi tiết thiết kế nằm ở
+`docs/phase-default-music-and-tags.md`.
+
 ## Thêm nhạc nền
 
 1. Đổi tên file của bạn thành chính xác `background.mp3`.
 2. Chép file vào `public/audio/background.mp3`.
 3. Commit và push lên GitHub để Vercel deploy lại.
 
-Không cần D1 migration hoặc Environment Variable. Nhạc mặc định tắt vì trình
-duyệt mobile thường chặn âm thanh autoplay; người đọc bấm nút `♪` để bật/tắt.
-Nên nén MP3 ở 96–160 kbps và chỉ dùng nhạc bạn có quyền phát/chia sẻ.
+Không cần Environment Variable cho nhạc. Nhạc mặc định bật và website sẽ thử
+phát khi mở trang. Chrome/Safari có thể chặn âm thanh trước lần chạm đầu tiên;
+khi đó nút `♪` hiện “Chạm để bật nhạc”. Người đọc vẫn có thể tắt, và lựa chọn
+được nhớ trên trình duyệt đó. Nên nén MP3 ở 96–160 kbps và chỉ dùng nhạc bạn có
+quyền phát/chia sẻ.
 
 ## Tạo owner secret
 

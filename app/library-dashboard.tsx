@@ -7,6 +7,7 @@ import { validateBookFile, validateCoverImage } from "@/lib/file-security";
 import type { LibraryBook, StorageStats } from "@/lib/library-repository";
 import { generateCoverFromPdf } from "@/lib/pdf-cover";
 import type { LibraryQuote } from "@/lib/quotes";
+import { readerStorageKey } from "@/lib/reader-local-data";
 
 type Viewer = {
   displayName: string;
@@ -53,16 +54,23 @@ export function LibraryDashboard({
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deleteNotice, setDeleteNotice] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [editTarget, setEditTarget] = useState<LibraryBook | null>(null);
+  const [editNotice, setEditNotice] = useState("");
+  const [editing, setEditing] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
     queueMicrotask(() => {
       setBooks((current) =>
         current.map((book) => {
-          const stored = Number(localStorage.getItem(`reading-progress:${book.id}`));
-          return Number.isFinite(stored)
-            ? { ...book, progress: Math.min(100, Math.max(0, stored)) }
-            : book;
+          try {
+            const stored = Number(localStorage.getItem(`reading-progress:${book.id}`));
+            return Number.isFinite(stored)
+              ? { ...book, progress: Math.min(100, Math.max(0, stored)) }
+              : book;
+          } catch {
+            return book;
+          }
         }),
       );
     });
@@ -78,7 +86,9 @@ export function LibraryDashboard({
   const visibleBooks = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("vi");
     const filtered = books.filter((book) =>
-      `${book.title} ${book.author}`.toLocaleLowerCase("vi").includes(normalized),
+      `${book.title} ${book.author} ${book.tags.join(" ")}`
+        .toLocaleLowerCase("vi")
+        .includes(normalized),
     );
 
     return [...filtered].sort((a, b) =>
@@ -242,6 +252,64 @@ export function LibraryDashboard({
     setDeleteNotice("");
   }
 
+  function openEditDialog(book: LibraryBook) {
+    setEditTarget(book);
+    setEditNotice("");
+  }
+
+  function closeEditDialog() {
+    if (editing) return;
+    setEditTarget(null);
+    setEditNotice("");
+  }
+
+  async function submitMetadataUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editTarget) return;
+    setEditing(true);
+    setEditNotice("Đang lưu metadata…");
+    const data = new FormData(event.currentTarget);
+
+    try {
+      const response = await fetch(
+        `/api/v1/books/${encodeURIComponent(editTarget.id)}`,
+        {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: data.get("title"),
+            author: data.get("author"),
+            description: data.get("description"),
+            tags: String(data.get("tags") ?? "")
+              .split(",")
+              .map((tag) => tag.trim())
+              .filter(Boolean),
+            expectedVersion: editTarget.version,
+          }),
+        },
+      );
+      const payload = (await response.json()) as {
+        data?: LibraryBook;
+        error?: { message?: string };
+      };
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "Không thể cập nhật metadata.");
+      }
+
+      const updatedBook = payload.data;
+      setBooks((current) => current.map((book) =>
+        book.id === updatedBook.id ? { ...updatedBook, progress: book.progress } : book,
+      ));
+      setEditTarget(updatedBook);
+      setEditNotice("Đã lưu tên sách, tác giả, tags và mô tả.");
+    } catch (error) {
+      setEditNotice(error instanceof Error ? error.message : "Không thể cập nhật metadata.");
+    } finally {
+      setEditing(false);
+    }
+  }
+
   function closeDeleteDialog() {
     if (deleting) return;
     setDeleteTarget(null);
@@ -288,7 +356,12 @@ export function LibraryDashboard({
 
       setBooks((current) => current.filter((book) => book.id !== payload.data!.id));
       setStorage(payload.data.storage);
-      localStorage.removeItem(`reading-progress:${payload.data.id}`);
+      try {
+        localStorage.removeItem(`reading-progress:${payload.data.id}`);
+        localStorage.removeItem(readerStorageKey(payload.data.id));
+      } catch {
+        // The server-side deletion succeeded even if browser storage is blocked.
+      }
       setDeleteTarget(null);
       setDeleteConfirmation("");
       setDeleteNotice("");
@@ -319,7 +392,7 @@ export function LibraryDashboard({
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Tìm theo tên sách hoặc tác giả"
+            placeholder="Tìm theo tên, tác giả hoặc tag"
           />
         </label>
 
@@ -415,6 +488,7 @@ export function LibraryDashboard({
                     <div>
                       <h3>{book.title}</h3>
                       <p>{book.author}</p>
+                      <BookTags tags={book.tags} />
                       <span>{book.format} · {formatBytes(book.sizeBytes)}</span>
                     </div>
                     <div>
@@ -479,6 +553,7 @@ export function LibraryDashboard({
                     <div className="book-meta">
                       <h3>{book.title}</h3>
                       <p>{book.author}</p>
+                      <BookTags tags={book.tags} />
                       <span>{book.format} · {formatBytes(book.sizeBytes)}</span>
                     </div>
                   </>
@@ -502,15 +577,28 @@ export function LibraryDashboard({
                       <span className="deletion-badge">Đang chờ xóa</span>
                     )}
                     {viewer.isOwner && (
-                      <button
-                        aria-label={`${book.deletionPending ? "Thử xóa lại" : "Xóa"} sách ${book.title}`}
-                        className="book-delete-button"
-                        onClick={() => openDeleteDialog(book)}
-                        title={book.deletionPending ? "Thử xóa lại" : "Xóa sách"}
-                        type="button"
-                      >
-                        <span aria-hidden="true">⌫</span>
-                      </button>
+                      <>
+                        {!book.deletionPending && (
+                          <button
+                            aria-label={`Chỉnh sửa metadata sách ${book.title}`}
+                            className="book-edit-button"
+                            onClick={() => openEditDialog(book)}
+                            title="Chỉnh tên sách, tác giả, tags và mô tả"
+                            type="button"
+                          >
+                            <span aria-hidden="true">✎</span>
+                          </button>
+                        )}
+                        <button
+                          aria-label={`${book.deletionPending ? "Thử xóa lại" : "Xóa"} sách ${book.title}`}
+                          className="book-delete-button"
+                          onClick={() => openDeleteDialog(book)}
+                          title={book.deletionPending ? "Thử xóa lại" : "Xóa sách"}
+                          type="button"
+                        >
+                          <span aria-hidden="true">⌫</span>
+                        </button>
+                      </>
                     )}
                   </article>
                 );
@@ -522,7 +610,7 @@ export function LibraryDashboard({
               <h3>{query ? "Không tìm thấy sách phù hợp" : "Kho sách đang trống"}</h3>
               <p>
                 {query
-                  ? "Thử tìm bằng tên tác giả hoặc một phần tiêu đề khác."
+                  ? "Thử tìm bằng tên sách, tác giả hoặc tag khác."
                   : viewer.isOwner
                     ? "Tải lên cuốn PDF hoặc TXT đầu tiên để bắt đầu."
                     : "Chủ thư viện chưa xuất bản cuốn sách nào."}
@@ -580,12 +668,91 @@ export function LibraryDashboard({
                 Sách tối đa 100 MiB; ảnh bìa JPG/PNG/WebP tối đa 3 MiB. Các tệp đi thẳng
                 đến R2; server chỉ xuất bản sau khi kiểm tra MIME, kích thước, chữ ký tệp
                 và hard quota 9 GB. Nếu để trống ảnh bìa, trang đầu PDF sẽ tự động được
-                render thành bìa; TXT tiếp tục dùng bìa minh họa mặc định.
+                render thành bìa; TXT tiếp tục dùng bìa minh họa mặc định. SHA-256 được
+                kiểm tra trước khi gửi lên R2 để chặn tệp trùng hoàn toàn.
               </p>
               {uploadNotice && <p className="notice" role="status">{uploadNotice}</p>}
               <button className="upload-button modal-submit" disabled={uploading} type="submit">
                 {uploading ? "Đang kiểm tra…" : "Kiểm tra và tải lên"}
               </button>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {editTarget && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={closeEditDialog}>
+          <section
+            aria-labelledby="edit-book-title"
+            aria-modal="true"
+            className="edit-book-modal"
+            role="dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <p className="section-kicker">Chỉ chủ thư viện</p>
+                <h2 id="edit-book-title">Chỉnh metadata sách</h2>
+              </div>
+              <button
+                aria-label="Đóng"
+                disabled={editing}
+                onClick={closeEditDialog}
+                type="button"
+              >×</button>
+            </div>
+            <form key={`${editTarget.id}:${editTarget.version}`} onSubmit={submitMetadataUpdate}>
+              <label>
+                Tên sách
+                <input
+                  autoFocus
+                  defaultValue={editTarget.title}
+                  maxLength={160}
+                  name="title"
+                  required
+                  type="text"
+                />
+              </label>
+              <label>
+                Tác giả
+                <input
+                  defaultValue={editTarget.author}
+                  maxLength={120}
+                  name="author"
+                  required
+                  type="text"
+                />
+              </label>
+              <label>
+                Tags <span className="optional">(ngăn cách bằng dấu phẩy)</span>
+                <input
+                  defaultValue={editTarget.tags.join(", ")}
+                  maxLength={339}
+                  name="tags"
+                  placeholder="Ví dụ: Lập trình, Cơ sở dữ liệu"
+                  type="text"
+                />
+              </label>
+              <label>
+                Mô tả ngắn <span className="optional">(không bắt buộc)</span>
+                <textarea
+                  defaultValue={editTarget.description ?? ""}
+                  maxLength={2000}
+                  name="description"
+                  rows={5}
+                />
+              </label>
+              <p className="edit-book-help">
+                Tối đa 10 tags, mỗi tag 32 ký tự. Chỉ metadata thay đổi; tệp PDF/TXT,
+                ảnh bìa và link đọc vẫn giữ nguyên.
+              </p>
+              {editNotice && <p className="edit-book-notice" role="status">{editNotice}</p>}
+              <div className="edit-book-actions">
+                <button disabled={editing} onClick={closeEditDialog} type="button">Đóng</button>
+                <button className="save-book-button" disabled={editing} type="submit">
+                  {editing ? "Đang lưu…" : "Lưu thay đổi"}
+                </button>
+              </div>
             </form>
           </section>
         </div>
@@ -659,6 +826,17 @@ export function LibraryDashboard({
         </div>
       )}
     </main>
+  );
+}
+
+function BookTags({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+  return (
+    <div className="book-tags" aria-label={`Tags: ${tags.join(", ")}`}>
+      {tags.map((tag) => (
+        <span className="book-tag" key={tag}>{tag}</span>
+      ))}
+    </div>
   );
 }
 

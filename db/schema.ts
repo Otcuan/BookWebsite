@@ -39,6 +39,7 @@ export const books = sqliteTable(
     title: text("title").notNull(),
     author: text("author").notNull(),
     description: text("description"),
+    tagsJson: text("tags_json").notNull().default("[]"),
     format: text("format", { enum: ["pdf", "txt"] }).notNull(),
     mimeType: text("mime_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),

@@ -28,12 +28,19 @@ test("new direct uploads persist attachment metadata using server-generated head
   assert.doesNotMatch(dashboard, /headers: \{ "Content-Disposition": data\.get/);
 });
 
-test("background music is same-origin, lazy, user-controlled and global", () => {
+test("background music defaults on, persists opt-out and handles autoplay blocking", () => {
   assert.equal(existsSync("public/audio/README.md"), true);
   assert.match(music, /BACKGROUND_MUSIC_URL = "\/audio\/background\.mp3"/);
-  assert.match(music, /preload="none"/);
+  assert.match(music, /MUSIC_PREFERENCE_KEY/);
+  assert.match(music, /getItem\(MUSIC_PREFERENCE_KEY\) !== "off"/);
+  assert.match(music, /void attemptPlayback\(\)/);
+  assert.match(music, /preload="metadata"/);
   assert.match(music, /await audio\.play\(\)/);
   assert.match(music, /audio\.pause\(\)/);
+  assert.match(music, /writeMusicEnabledPreference\(false\)/);
+  assert.match(music, /NotAllowedError/);
+  assert.match(music, /Chạm để bật nhạc/);
+  assert.doesNotMatch(music, /setInterval/);
   assert.doesNotMatch(music, /autoPlay/);
   assert.match(layout, /<BackgroundMusic \/>/);
 });

@@ -5,6 +5,11 @@ const developmentScriptSource =
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  images: {
+    // Covers are already signature-checked and served from our same-origin route.
+    // Avoid server-side decoding of user-supplied images and its extra runtime cost.
+    unoptimized: true,
+  },
   async headers() {
     const securityHeaders = [
       { key: "X-Content-Type-Options", value: "nosniff" },
@@ -13,7 +18,8 @@ const nextConfig: NextConfig = {
       { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
       {
         key: "Permissions-Policy",
-        value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        value:
+          "autoplay=(self), camera=(), microphone=(), geolocation=(), payment=(), usb=()",
       },
       {
         key: "Strict-Transport-Security",

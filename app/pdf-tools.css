@@ -1,0 +1,408 @@
+.pdf-mobile-reader {
+  position: relative;
+}
+
+.pdf-tool-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.pdf-tool-actions .pdf-tools-open {
+  min-width: 104px;
+  padding: 0 12px;
+}
+
+.pdf-tool-actions .pdf-share-page {
+  min-width: 44px;
+}
+
+.pdf-share-status {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.pdf-tools-scrim {
+  position: absolute;
+  z-index: 19;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: rgb(13 20 17 / 42%);
+  backdrop-filter: blur(2px);
+}
+
+.pdf-tools-drawer {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  width: min(420px, calc(100% - 34px));
+  min-width: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  border-right: 1px solid color-mix(in srgb, var(--reader-ink) 18%, transparent);
+  background: var(--reader-bg);
+  box-shadow: 18px 0 55px rgb(9 16 13 / 26%);
+  color: var(--reader-ink);
+}
+
+.pdf-tools-header {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--reader-ink) 14%, transparent);
+}
+
+.pdf-tools-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.pdf-tools-header span {
+  color: color-mix(in srgb, var(--reader-ink) 64%, transparent);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pdf-tools-header strong {
+  font-size: 15px;
+}
+
+.pdf-tools-header button {
+  width: 44px;
+  height: 44px;
+  border: 1px solid color-mix(in srgb, var(--reader-ink) 20%, transparent);
+  border-radius: 10px;
+  background: var(--reader-paper);
+  color: var(--reader-ink);
+  font-size: 25px;
+}
+
+.pdf-tools-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--reader-ink) 14%, transparent);
+}
+
+.pdf-tools-tabs button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: color-mix(in srgb, var(--reader-ink) 68%, transparent);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.pdf-tools-tabs button.active {
+  background: color-mix(in srgb, var(--reader-ink) 10%, var(--reader-paper));
+  color: var(--reader-ink);
+}
+
+.pdf-tools-content {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  overscroll-behavior: contain;
+}
+
+.pdf-tool-notice,
+.pdf-tool-error,
+.pdf-search-status,
+.pdf-tool-footnote,
+.pdf-saved-groups section > p {
+  margin: 0;
+  color: color-mix(in srgb, var(--reader-ink) 65%, transparent);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.pdf-tool-notice {
+  padding: 18px;
+  border: 1px dashed color-mix(in srgb, var(--reader-ink) 22%, transparent);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.pdf-tool-error {
+  margin-top: 12px;
+  color: #a63d40;
+}
+
+.pdf-outline-tree,
+.pdf-outline-tree ul,
+.pdf-search-results,
+.pdf-saved-groups ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pdf-outline-tree ul {
+  margin: 5px 0 0 13px;
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, var(--reader-ink) 15%, transparent);
+}
+
+.pdf-outline-tree button,
+.pdf-outline-heading {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--reader-ink);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.pdf-outline-tree button:hover {
+  background: color-mix(in srgb, var(--reader-ink) 8%, transparent);
+}
+
+.pdf-outline-heading {
+  color: color-mix(in srgb, var(--reader-ink) 68%, transparent);
+  font-weight: 750;
+}
+
+.pdf-search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.pdf-search-form input,
+.pdf-search-form button,
+.pdf-current-page-save button,
+.pdf-current-page-save textarea,
+.pdf-saved-groups input,
+.pdf-saved-groups button {
+  border: 1px solid color-mix(in srgb, var(--reader-ink) 20%, transparent);
+  border-radius: 9px;
+  background: var(--reader-paper);
+  color: var(--reader-ink);
+  font: inherit;
+}
+
+.pdf-search-form input {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 11px;
+}
+
+.pdf-search-form button {
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 12px;
+  font-weight: 750;
+}
+
+.pdf-search-status {
+  min-height: 38px;
+  padding: 10px 2px;
+}
+
+.pdf-search-results button {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--reader-ink) 16%, transparent);
+  border-radius: 10px;
+  background: var(--reader-paper);
+  color: var(--reader-ink);
+  text-align: left;
+}
+
+.pdf-search-results button:hover {
+  border-color: color-mix(in srgb, var(--reader-ink) 40%, transparent);
+}
+
+.pdf-search-results span {
+  color: color-mix(in srgb, var(--reader-ink) 72%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.pdf-search-results small,
+.pdf-current-page-save small {
+  color: color-mix(in srgb, var(--reader-ink) 54%, transparent);
+  font-size: 11px;
+}
+
+.pdf-tool-footnote {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--reader-ink) 12%, transparent);
+}
+
+.pdf-current-page-save {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--reader-ink) 16%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--reader-paper) 70%, transparent);
+}
+
+.pdf-current-page-save > button {
+  min-height: 44px;
+  padding: 0 12px;
+  font-weight: 750;
+}
+
+.pdf-current-page-save > button span {
+  margin-right: 7px;
+  color: #bd7b16;
+}
+
+.pdf-current-page-save label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.pdf-current-page-save textarea {
+  width: 100%;
+  padding: 10px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.pdf-saved-groups {
+  display: grid;
+  gap: 22px;
+  margin-top: 22px;
+}
+
+.pdf-saved-groups h3 {
+  margin: 0 0 9px;
+  font-size: 14px;
+}
+
+.pdf-saved-groups li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.pdf-saved-groups li > button:first-child {
+  min-height: 40px;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.pdf-saved-groups input {
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 9px;
+}
+
+.pdf-saved-groups .pdf-saved-delete {
+  width: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  color: #a63d40;
+  font-size: 19px;
+}
+
+.pdf-saved-groups .pdf-note-list li {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.pdf-note-list li > button:first-child {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.pdf-note-list span {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--reader-ink) 68%, transparent);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 820px) {
+  .pdf-reader-controls {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .pdf-tool-actions {
+    justify-self: center;
+  }
+}
+
+@media (max-width: 580px) {
+  .pdf-reader-controls {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .pdf-tool-actions {
+    justify-self: end;
+  }
+
+  .pdf-tool-actions .pdf-tools-open {
+    min-width: 42px;
+    width: 42px;
+    padding: 0;
+  }
+
+  .pdf-tools-open span:last-child {
+    position: absolute;
+    overflow: hidden;
+    width: 1px;
+    height: 1px;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .pdf-zoom-controls {
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+
+  .pdf-tools-drawer {
+    width: calc(100% - 18px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pdf-tools-drawer {
+    animation: pdf-tools-enter 160ms ease-out;
+  }
+
+  @keyframes pdf-tools-enter {
+    from { transform: translateX(-16px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+}

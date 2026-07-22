@@ -1,15 +1,42 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const BACKGROUND_MUSIC_URL = "/audio/background.mp3";
 const DEFAULT_VOLUME = 0.28;
+const MUSIC_PREFERENCE_KEY = "tu-sach:background-music:v1";
 
-type PlaybackState = "paused" | "loading" | "playing" | "unavailable";
+type PlaybackState = "paused" | "loading" | "playing" | "blocked" | "missing";
 
 export function BackgroundMusic() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [state, setState] = useState<PlaybackState>("paused");
+
+  const attemptPlayback = useCallback(async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    setState("loading");
+    audio.volume = DEFAULT_VOLUME;
+    try {
+      await audio.play();
+      setState("playing");
+    } catch (error) {
+      setState(isAutoplayBlocked(error) ? "blocked" : "missing");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!readMusicEnabledPreference()) return;
+
+    let active = true;
+    queueMicrotask(() => {
+      if (active) void attemptPlayback();
+    });
+    return () => {
+      active = false;
+    };
+  }, [attemptPlayback]);
 
   async function togglePlayback() {
     const audio = audioRef.current;
@@ -17,18 +44,13 @@ export function BackgroundMusic() {
 
     if (!audio.paused) {
       audio.pause();
+      writeMusicEnabledPreference(false);
       setState("paused");
       return;
     }
 
-    setState("loading");
-    audio.volume = DEFAULT_VOLUME;
-    try {
-      await audio.play();
-      setState("playing");
-    } catch {
-      setState("unavailable");
-    }
+    writeMusicEnabledPreference(true);
+    await attemptPlayback();
   }
 
   const playing = state === "playing";
@@ -36,22 +58,32 @@ export function BackgroundMusic() {
     ? "Tắt nhạc nền"
     : state === "loading"
       ? "Đang mở nhạc"
-      : state === "unavailable"
-        ? "Chưa có nhạc"
-        : "Bật nhạc nền";
+      : state === "blocked"
+        ? "Chạm để bật nhạc"
+        : state === "missing"
+          ? "Chưa có nhạc"
+          : "Bật nhạc nền";
 
   return (
     <div className="background-music-control">
       <audio
         loop
-        onError={() => setState("unavailable")}
-        onPause={() => setState((current) => current === "unavailable" ? current : "paused")}
+        onError={() => setState("missing")}
+        onPause={() => setState((current) =>
+          current === "missing" || current === "blocked" ? current : "paused"
+        )}
+        onPlay={() => setState("playing")}
         playsInline
-        preload="none"
+        preload="metadata"
         ref={audioRef}
         src={BACKGROUND_MUSIC_URL}
       />
-      {state === "unavailable" && (
+      {state === "blocked" && (
+        <span className="background-music-notice" role="status">
+          Trình duyệt cần bạn chạm một lần để phát nhạc.
+        </span>
+      )}
+      {state === "missing" && (
         <span className="background-music-notice" role="status">
           Thêm file public/audio/background.mp3
         </span>
@@ -69,4 +101,24 @@ export function BackgroundMusic() {
       </button>
     </div>
   );
+}
+
+function readMusicEnabledPreference(): boolean {
+  try {
+    return localStorage.getItem(MUSIC_PREFERENCE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function writeMusicEnabledPreference(enabled: boolean) {
+  try {
+    localStorage.setItem(MUSIC_PREFERENCE_KEY, enabled ? "on" : "off");
+  } catch {
+    // Playback still works for this visit when browser storage is unavailable.
+  }
+}
+
+function isAutoplayBlocked(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "NotAllowedError";
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -13,6 +14,8 @@ import type {
   PDFPageProxy,
   RenderTask,
 } from "pdfjs-dist";
+import { pageFromSearchParams } from "@/lib/pdf-document-tools";
+import { PdfToolsDrawer } from "./pdf-tools-drawer";
 
 const PDF_WORKER_PATH = "/pdfjs/pdf.worker.min.mjs";
 const CMAP_PATH = "/pdfjs/cmaps/";
@@ -57,6 +60,10 @@ export function PdfReader({
   const [rendering, setRendering] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [retryKey, setRetryKey] = useState(0);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [shareStatus, setShareStatus] = useState("");
+
+  const closeTools = useCallback(() => setToolsOpen(false), []);
 
   useEffect(() => {
     initialProgressRef.current = initialProgress;
@@ -126,7 +133,11 @@ export function PdfReader({
         const documentProxy = await loadingTask.promise;
         if (disposed) return;
 
-        const restoredPage = progressToPage(
+        const linkedPage = pageFromSearchParams(
+          window.location.search,
+          documentProxy.numPages,
+        );
+        const restoredPage = linkedPage ?? progressToPage(
           initialProgressRef.current,
           documentProxy.numPages,
         );
@@ -260,6 +271,24 @@ export function PdfReader({
   }, [onProgress, pageCount, pageNumber]);
 
   useEffect(() => {
+    if (!pdfDocument || pageCount <= 0) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("page") === String(pageNumber)) return;
+    url.searchParams.set("page", String(pageNumber));
+    window.history.replaceState(window.history.state, "", url);
+  }, [pageCount, pageNumber, pdfDocument]);
+
+  useEffect(() => {
+    if (pageCount <= 0) return;
+    const restoreLinkedPage = () => {
+      const linkedPage = pageFromSearchParams(window.location.search, pageCount);
+      if (linkedPage !== null) goToPage(linkedPage);
+    };
+    window.addEventListener("popstate", restoreLinkedPage);
+    return () => window.removeEventListener("popstate", restoreLinkedPage);
+  });
+
+  useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
       const target = event.target;
       if (
@@ -317,6 +346,32 @@ export function PdfReader({
     goToPage(deltaX < 0 ? pageNumber + 1 : pageNumber - 1);
   }
 
+  async function shareCurrentPage() {
+    if (pageCount <= 0) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("page", String(pageNumber));
+    window.history.replaceState(window.history.state, "", url);
+
+    try {
+      if (typeof navigator.share === "function") {
+        await navigator.share({
+          title,
+          text: `${title} — trang ${pageNumber}`,
+          url: url.toString(),
+        });
+        setShareStatus("Đã mở bảng chia sẻ.");
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url.toString());
+        setShareStatus("Đã sao chép link đúng trang.");
+      } else {
+        setShareStatus("Link đúng trang đã nằm trên thanh địa chỉ để bạn sao chép.");
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      setShareStatus("Không thể tự sao chép; hãy sao chép URL trên thanh địa chỉ.");
+    }
+  }
+
   return (
     <div className="pdf-mobile-reader">
       <div className="pdf-reader-controls" aria-label="Điều hướng PDF">
@@ -352,6 +407,31 @@ export function PdfReader({
           >
             →
           </button>
+        </div>
+
+        <div className="pdf-tool-actions">
+          <button
+            aria-expanded={toolsOpen}
+            aria-label="Mở mục lục, tìm kiếm, bookmark và ghi chú"
+            className="pdf-tools-open"
+            disabled={!pdfDocument}
+            onClick={() => setToolsOpen(true)}
+            type="button"
+          >
+            <span aria-hidden="true">☰</span>
+            <span>Công cụ</span>
+          </button>
+          <button
+            aria-label={`Chia sẻ link trang ${pageNumber}`}
+            className="pdf-share-page"
+            disabled={pageCount === 0}
+            onClick={shareCurrentPage}
+            title="Chia sẻ link đúng trang"
+            type="button"
+          >
+            ↗
+          </button>
+          <span aria-live="polite" className="pdf-share-status">{shareStatus}</span>
         </div>
 
         <div className="pdf-zoom-controls">
@@ -421,6 +501,19 @@ export function PdfReader({
         </div>
       </div>
       <p className="pdf-swipe-hint">Mặc định vừa toàn trang · Vuốt ngang để đổi trang</p>
+      {pdfDocument && (
+        <PdfToolsDrawer
+          bookId={bookId}
+          document={pdfDocument}
+          key={`${bookId}:${retryKey}`}
+          onClose={closeTools}
+          onNavigate={goToPage}
+          open={toolsOpen}
+          pageCount={pageCount}
+          pageNumber={pageNumber}
+          title={title}
+        />
+      )}
     </div>
   );
 }

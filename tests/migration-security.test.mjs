@@ -113,3 +113,36 @@ test("cover migration is additive and backfills active reservation size", () => 
     .get("reservation-1");
   assert.equal(reservation.book_size_bytes, 1234);
 });
+
+test("tags migration is additive and backfills existing books with an empty list", () => {
+  const database = new DatabaseSync(":memory:");
+  for (const migration of [
+    "drizzle/0000_tearful_wasp.sql",
+    "drizzle/0001_colossal_misty_knight.sql",
+    "drizzle/0002_amazing_whizzer.sql",
+  ]) {
+    database.exec(readFileSync(migration, "utf8"));
+  }
+  database
+    .prepare("INSERT INTO principals (email, role) VALUES (?, 'owner')")
+    .run("owner@library.local");
+  database.prepare(
+    `INSERT INTO books
+       (id, slug, title, author, format, mime_type, size_bytes, object_key,
+        checksum_sha256, status, created_by_email)
+     VALUES (?, 'book', 'Book', 'Author', 'pdf', 'application/pdf', 1000,
+             'books/one.pdf', ?, 'published', ?)`,
+  ).run("11111111-1111-4111-8111-111111111111", "a".repeat(64), "owner@library.local");
+
+  database.exec(readFileSync("drizzle/0003_fast_yellow_claw.sql", "utf8"));
+  const column = database
+    .prepare("PRAGMA table_info(books)")
+    .all()
+    .find((candidate) => candidate.name === "tags_json");
+  const book = database.prepare("SELECT tags_json FROM books LIMIT 1").get();
+
+  assert.equal(column.notnull, 1);
+  assert.equal(column.dflt_value, "'[]'");
+  assert.equal(book.tags_json, "[]");
+  assert.throws(() => database.prepare("UPDATE books SET tags_json = NULL").run());
+});

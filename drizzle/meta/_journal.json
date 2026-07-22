@@ -22,6 +22,13 @@
       "when": 1784464358182,
       "tag": "0002_amazing_whizzer",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784693580083,
+      "tag": "0003_fast_yellow_claw",
+      "breakpoints": true
     }
   ]
 }

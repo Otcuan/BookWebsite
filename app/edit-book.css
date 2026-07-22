@@ -1,0 +1,164 @@
+.book-edit-button {
+  position: absolute;
+  z-index: 6;
+  top: 20px;
+  right: 66px;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgb(49 93 202 / 25%);
+  border-radius: 50%;
+  background: rgb(255 253 248 / 92%);
+  box-shadow: 0 8px 24px rgb(31 44 78 / 14%);
+  color: var(--cobalt);
+  font-size: 18px;
+  opacity: 0;
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+
+.book-tile:hover .book-edit-button,
+.book-edit-button:focus-visible {
+  opacity: 1;
+}
+
+.book-edit-button:hover {
+  border-color: var(--cobalt);
+  background: #f2f5ff;
+  transform: scale(1.05);
+}
+
+.book-collection.list .book-edit-button {
+  top: 50%;
+  right: 62px;
+  transform: translateY(-50%);
+}
+
+.book-collection.list .book-edit-button:hover {
+  transform: translateY(-50%) scale(1.05);
+}
+
+.edit-book-modal {
+  width: min(100%, 590px);
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.edit-book-modal h2 {
+  margin: 0;
+  font-size: clamp(26px, 3vw, 34px);
+  letter-spacing: -0.035em;
+}
+
+.edit-book-modal form,
+.edit-book-modal label {
+  display: grid;
+}
+
+.edit-book-modal form {
+  gap: 17px;
+  margin-top: 24px;
+}
+
+.edit-book-modal label {
+  gap: 8px;
+  color: #4a534e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.edit-book-modal input,
+.edit-book-modal textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  color: var(--ink);
+}
+
+.edit-book-modal input {
+  min-height: 48px;
+}
+
+.edit-book-modal textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.edit-book-modal input:focus,
+.edit-book-modal textarea:focus {
+  border-color: var(--cobalt);
+  outline: 3px solid rgb(49 93 202 / 12%);
+}
+
+.edit-book-help,
+.edit-book-notice {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.edit-book-help {
+  color: var(--muted);
+}
+
+.edit-book-notice {
+  padding: 11px 13px;
+  border: 1px solid #cbd5eb;
+  border-radius: 10px;
+  background: #f1f5ff;
+  color: #36528e;
+}
+
+.edit-book-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.edit-book-actions button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  color: #4a534e;
+  font-weight: 750;
+}
+
+.edit-book-actions .save-book-button {
+  border-color: var(--sage);
+  background: var(--sage);
+  color: white;
+}
+
+.edit-book-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+@media (hover: none) {
+  .book-edit-button {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 580px) {
+  .book-edit-button {
+    top: 10px;
+    right: 58px;
+  }
+
+  .edit-book-modal {
+    padding: 22px;
+  }
+
+  .edit-book-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}

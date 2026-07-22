@@ -2,6 +2,7 @@ import { ensureOwnerPrincipal, getViewer } from "@/lib/authz";
 import { jsonError, jsonOk, requestId } from "@/lib/http";
 import {
   createUploadReservation,
+  DuplicateBookError,
   FreeTierBudgetError,
   StorageQuotaError,
   UploadedObjectError,
@@ -105,6 +106,18 @@ export async function POST(request: Request) {
     });
     return jsonOk({ data: reservation }, { status: 201 });
   } catch (error) {
+    if (error instanceof DuplicateBookError) {
+      return jsonError(
+        409,
+        "DUPLICATE_BOOK",
+        error.message,
+        id,
+        {
+          existingBookTitle: error.existingTitle,
+          ...(error.existingBookId ? { existingBookId: error.existingBookId } : {}),
+        },
+      );
+    }
     if (error instanceof UploadedObjectError) {
       return jsonError(422, "INVALID_FILE_METADATA", error.message, id);
     }
