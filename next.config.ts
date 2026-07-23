@@ -30,7 +30,23 @@ const nextConfig: NextConfig = {
         value: `default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self' https://*.r2.cloudflarestorage.com; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: https://*.r2.cloudflarestorage.com; media-src 'self'; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'${developmentScriptSource}; worker-src 'self'; connect-src 'self' https://*.r2.cloudflarestorage.com`,
       },
     ];
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      {
+        source: "/sw.js",
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/javascript; charset=utf-8",
+          },
+          {
+            key: "Cache-Control",
+            value: "no-cache, no-store, must-revalidate",
+          },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      { source: "/:path*", headers: securityHeaders },
+    ];
   },
 };
 

@@ -1,7 +1,9 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -86,4 +88,52 @@ export async function deleteR2Object(objectKey: string): Promise<void> {
   await getClient().send(
     new DeleteObjectCommand({ Bucket: bucketName(), Key: objectKey }),
   );
+}
+
+export async function checkR2Bucket(): Promise<void> {
+  await getClient().send(
+    new HeadBucketCommand({ Bucket: bucketName() }),
+    { abortSignal: AbortSignal.timeout(10_000) },
+  );
+}
+
+export type R2ObjectSummary = {
+  key: string;
+  sizeBytes: number;
+  lastModified: string | null;
+};
+
+export async function listR2ObjectsPage(input: {
+  prefix: "books/" | "covers/";
+  continuationToken?: string;
+}): Promise<{
+  objects: R2ObjectSummary[];
+  nextContinuationToken: string | null;
+}> {
+  const result = await getClient().send(
+    new ListObjectsV2Command({
+      Bucket: bucketName(),
+      Prefix: input.prefix,
+      ContinuationToken: input.continuationToken,
+      MaxKeys: 1_000,
+    }),
+    { abortSignal: AbortSignal.timeout(15_000) },
+  );
+  if (result.IsTruncated && !result.NextContinuationToken) {
+    throw new Error("R2 pagination token is missing.");
+  }
+  return {
+    objects: (result.Contents ?? [])
+      .filter((object): object is typeof object & { Key: string } =>
+        Boolean(object.Key),
+      )
+      .map((object) => ({
+        key: object.Key,
+        sizeBytes: object.Size ?? 0,
+        lastModified: object.LastModified?.toISOString() ?? null,
+      })),
+    nextContinuationToken: result.IsTruncated
+      ? result.NextContinuationToken ?? null
+      : null,
+  };
 }

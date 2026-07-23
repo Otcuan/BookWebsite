@@ -8,6 +8,7 @@ import type { LibraryBook, StorageStats } from "@/lib/library-repository";
 import { generateCoverFromPdf } from "@/lib/pdf-cover";
 import type { LibraryQuote } from "@/lib/quotes";
 import { readerStorageKey } from "@/lib/reader-local-data";
+import { OperationsDashboard } from "./operations-dashboard";
 
 type Viewer = {
   displayName: string;
@@ -466,6 +467,7 @@ export function LibraryDashboard({
                 <span style={{ width: `${quotaPercent}%` }} />
               </div>
               <p>Còn {formatBytes(remainingBytes)} trước hard quota miễn phí.</p>
+              <OperationsDashboard />
             </div>
           )}
         </section>

@@ -813,7 +813,7 @@ async function releaseExpiredReservations() {
   const expired = await DB.prepare(
     `SELECT id, object_key, cover_object_key, reserved_bytes
      FROM upload_reservations
-     WHERE status = 'reserved' AND expires_at < CURRENT_TIMESTAMP
+     WHERE status = 'reserved' AND datetime(expires_at) < CURRENT_TIMESTAMP
      LIMIT 100`,
   ).all<{
     id: string;
@@ -847,7 +847,7 @@ async function findDuplicateBook(
        WHERE checksum_sha256 = ?
          AND principal_email = ?
          AND status = 'reserved'
-         AND expires_at > CURRENT_TIMESTAMP
+         AND datetime(expires_at) > CURRENT_TIMESTAMP
      )
      ORDER BY priority ASC
      LIMIT 1`,

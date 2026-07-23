@@ -13,7 +13,10 @@
     "lint": "eslint . --ignore-pattern .next",
     "security:audit": "npm audit --omit=dev --audit-level=high",
     "db:generate": "drizzle-kit generate",
-    "auth:generate": "node scripts/generate-owner-secrets.mjs"
+    "auth:generate": "node scripts/generate-owner-secrets.mjs",
+    "ops:backup": "node scripts/ops/backup-library.mjs",
+    "ops:verify-backup": "node scripts/ops/verify-backup.mjs",
+    "ops:restore": "node scripts/ops/restore-library.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1092.0",

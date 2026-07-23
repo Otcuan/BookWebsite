@@ -48,7 +48,7 @@ test("exact checksum duplicate check happens before quota reservation and signed
   assert.ok(reservationInsert > duplicateCheck);
   assert.ok(signedPut > duplicateCheck);
   assert.match(repository, /checksum_sha256 = \?/);
-  assert.match(repository, /expires_at > CURRENT_TIMESTAMP/);
+  assert.match(repository, /datetime\(expires_at\) > CURRENT_TIMESTAMP/);
   assert.match(uploadRoute, /DUPLICATE_BOOK/);
   assert.match(uploadRoute, /409/);
 });

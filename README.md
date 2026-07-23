@@ -11,11 +11,14 @@ Bạn đọc -> Vercel / Next.js -> D1 REST (danh mục)
 Bạn đọc -> content route -> presigned GET 5 phút -> R2 private
          -> PDF.js tải theo Range và chỉ render trang hiện tại vào canvas
 Bạn đọc -> nút tải PDF -> fetch signed R2 -> Blob cùng origin -> lưu về thiết bị
-Bạn đọc -> nút nhạc -> public/audio/background.mp3 cùng origin (không autoplay)
+Bạn đọc -> PWA shell -> service worker network-only cho API/PDF
+Bạn đọc -> nút nhạc -> public/audio/background.mp3 cùng origin
 Tuấn -> HttpOnly owner session -> upload reservation
       -> PDF.js trong trình duyệt render trang 1 thành ảnh (nếu không chọn bìa)
       -> presigned PUT sách/bìa 5 phút -> R2 -> finalize -> D1 publish
 Tuấn -> xác nhận đúng tên sách -> owner-only DELETE -> R2 + D1 + quota + audit
+Tuấn -> dashboard vận hành -> D1 health + R2 health + orphan report read-only
+Tuấn -> terminal local -> D1 export + R2 full backup -> restore test
 ```
 
 Upload đi thẳng từ trình duyệt đến R2 vì Vercel Functions giới hạn payload
@@ -49,10 +52,18 @@ upload là bước nâng cấp sau MVP. Chi tiết và trade-off ở `docs/verce
 - Nút tải PDF lấy file qua signed URL rồi tạo Blob cục bộ để sách cũ lẫn mới đều
   có tên tải xuống an toàn. Upload sách mới còn lưu `Content-Disposition` do
   server sinh; tiêu đề không được chèn trực tiếp vào HTTP header.
-- Nhạc nền là MP3 tĩnh cùng origin, `preload=none`, chỉ phát sau khi người đọc bấm
-  và có nút tắt. CSP không cho tải media từ domain ngoài.
+- Nhạc nền là MP3 tĩnh cùng origin, `preload=none`; website thử bật mặc định nhưng
+  tuân theo autoplay policy của trình duyệt và luôn có nút tắt. CSP không cho tải
+  media từ domain ngoài.
 - Bạn đọc không nhận thống kê dung lượng R2 trong HTML hoặc API catalog công khai;
   quota chỉ được truy vấn và hiển thị khi phiên owner hợp lệ.
+- Dashboard vận hành chỉ xuất hiện trong quota panel của admin. Health check chạy
+  thủ công; orphan scan chỉ đọc `books/` và `covers/`, phân trang, có grace period
+  một giờ và không có API tự xóa.
+- Full backup D1 + R2 được tải về máy admin, có SHA-256 từng file và phải restore
+  SQL thành công vào SQLite tạm trước khi được coi là hợp lệ.
+- PWA cài được trên desktop/mobile nhưng service worker không dùng Cache Storage
+  cho PDF, signed content route hay response API.
 - D1 CHECK constraint giữ tổng committed + reserved không quá `9,000,000,000` byte.
 - Circuit breaker ứng dụng: 5.000 Class A và 100.000 Class B/tháng.
 - API lỗi nhất quán, không trả stack trace, token hoặc khóa storage.
@@ -143,6 +154,84 @@ tác giả, tags và mô tả. Tags cách nhau bằng dấu phẩy, tối đa 10
 mỗi tag; người đọc có thể tìm sách theo tag. Chi tiết thiết kế nằm ở
 `docs/phase-default-music-and-tags.md`.
 
+## Giai đoạn vận hành
+
+Phiên bản này không cần migration D1, Environment Variable Vercel hay thay đổi
+R2 CORS mới. Sau khi deploy và đăng nhập admin, ở khung **Dung lượng an toàn**
+bấm **Kiểm tra vận hành**:
+
+- **Sức khỏe hệ thống** kiểm tra D1, R2, quota metadata, reservation hết hạn và
+  sách đang chờ xóa. Không có polling nền; mỗi lần mở/chạm kiểm tra mới phát sinh
+  request.
+- **Quét R2** đọc tối đa 1.000 object mỗi trang trong hai prefix `books/` và
+  `covers/`. Object không có tham chiếu nhưng mới dưới một giờ được bảo vệ bởi
+  grace period. Kết quả chỉ là candidate để kiểm tra; website không tự xóa.
+
+### Tạo full backup về máy
+
+Đảm bảo ổ đĩa còn hơn dung lượng kho (hiện dự kiến trên 8 GB), dùng ổ được mã hóa
+nếu có thể, rồi:
+
+1. Không upload, sửa hoặc xóa sách trong suốt quá trình.
+2. Mở Git Bash tại thư mục project.
+3. Chạy:
+
+```bash
+npm run ops:backup
+```
+
+Mặc định backup nằm trong `backups/<thời-gian>/` và bị `.gitignore` loại khỏi
+Git. Cuối lệnh sẽ in đúng đường dẫn. Tiếp theo chạy verify với đường dẫn đó, ví dụ:
+
+```bash
+npm run ops:verify-backup -- backups/20260723T120000Z
+```
+
+Chỉ khi terminal in `RESTORE TEST ĐẠT` thì backup mới hợp lệ. Verify thực hiện:
+
+- SHA-256 và kích thước của SQL/từng object;
+- khôi phục `database.sql` vào một SQLite in-memory mới;
+- `integrity_check` và `foreign_key_check`;
+- đối chiếu quota và mọi PDF/bìa mà bảng `books` tham chiếu.
+
+Nên chạy mỗi tuần, trước migration và trước khi xóa nhiều sách; sau đó sao chép
+thư mục backup sang ổ thứ hai. Không upload thư mục này vào GitHub/Vercel.
+
+### Restore khi có sự cố
+
+Nếu chỉ D1 bị sửa/xóa nhầm và sự cố còn trong cửa sổ Time Travel, ưu tiên
+Cloudflare D1 Time Travel. Theo tài liệu hiện tại Free plan giữ 7 ngày; hãy tạo
+bookmark hiện trạng trước khi restore vì thao tác này sửa database tại chỗ.
+
+Full restore được cố ý khóa, chỉ chạy vào một D1 database **mới, trống** và một
+R2 bucket Standard **mới, trống**:
+
+1. Tạo `.env.restore.local` từ `.env.example`.
+2. Chỉ điền ID/token/key của D1 và R2 target mới; không điền target production.
+3. Chạy:
+
+```bash
+BOOK_OPS_ENV_FILE=.env.restore.local npm run ops:restore -- backups/20260723T120000Z --confirm-empty-target
+```
+
+Script verify backup trước, dừng nếu một trong hai target không trống, upload R2,
+import D1 rồi so số sách. Nếu giữa chừng thất bại, xóa target thử nghiệm và tạo
+target trống mới thay vì cố ghi đè. Chưa đổi Vercel Environment Variables ngay;
+trước hết trỏ một Preview an toàn vào target, chạy health check và mở thử nhiều
+PDF. Restore thật trên tài khoản của bạn chưa được thực hiện:
+**Không đủ dữ liệu để xác minh.**
+
+### Cài PWA
+
+- Android/Chrome: mở website bằng HTTPS, menu trình duyệt → **Cài đặt ứng dụng**.
+- iPhone/iPad/Safari: nút Share → **Add to Home Screen**.
+- Desktop Chrome/Edge: chọn biểu tượng cài đặt ở thanh địa chỉ nếu trình duyệt
+  hiển thị.
+
+PWA này không phải reader offline. PDF/API luôn đi qua network và vẫn tuân theo
+signed URL + `no-store`; service worker không tự lưu file sách vào Cache Storage.
+Chi tiết kiến trúc, STRIDE, CIA và runbook ở `docs/phase-operations.md`.
+
 ## Thêm nhạc nền
 
 1. Đổi tên file của bạn thành chính xác `background.mp3`.
@@ -199,7 +288,8 @@ hard quota, cost budget, security headers/CORS, đóng gói PDF.js worker/font v
 luồng xóa/cascade/cập nhật dung lượng. Test trình đọc còn kiểm tra không dùng
 `iframe`, chỉ render theo trang, có giới hạn canvas, tắt annotation/XFA và không
 lộ quota qua catalog public. Bộ test cũng kiểm tra fit toàn trang, tên download
-được làm sạch, upload header do server sinh và nhạc không autoplay/tải từ ngoài.
+được làm sạch, upload header do server sinh, PWA network-only cho PDF/API, quyền
+truy cập operations API và restore test/tamper detection của backup.
 
 ## Giới hạn và chi phí
 
@@ -223,6 +313,10 @@ lộ quota qua catalog public. Bộ test cũng kiểm tra fit toàn trang, tên 
 - Guard trong ứng dụng giảm nguy cơ vượt free tier nhưng không thể cam kết `$0`
   tuyệt đối khi pricing/quota của nhà cung cấp thay đổi. Bật usage/billing alert.
 - Xóa vĩnh viễn file R2 không thể hoàn tác; phải tải bản sao về máy trước nếu cần.
-- Chưa có UI note/bookmark và backup automation. Backup chỉ được coi hợp lệ sau
-  một lần restore D1/R2 thành công.
+- Backup là lệnh thủ công về máy, không phải lịch chạy tự động. Local restore test
+  kiểm tra tính dùng được của backup; restore Cloudflare target thật vẫn phải được
+  diễn tập định kỳ và kiểm tra bằng cách mở sách.
+- Health rate limit tại Vercel là best-effort theo từng instance; endpoint vẫn
+  được bảo vệ bằng owner session và same-origin. Orphan scan còn có D1 rate limit
+  và hard budget Class A ở lớp ứng dụng.
 - Chỉ upload sách bạn có quyền lưu trữ và chia sẻ.

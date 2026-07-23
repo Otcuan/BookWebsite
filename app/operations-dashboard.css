@@ -1,0 +1,256 @@
+.operations-launch {
+  display: inline-flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--sage) 55%, white);
+  border-radius: 10px;
+  background: var(--sage-soft);
+  color: var(--sage-deep);
+  font-weight: 750;
+}
+
+.operations-launch:hover {
+  border-color: var(--sage);
+  background: color-mix(in srgb, var(--sage-soft) 75%, var(--sage));
+}
+
+.operations-modal {
+  width: min(100%, 900px);
+  max-height: min(92vh, 940px);
+  overflow-y: auto;
+  padding: clamp(20px, 4vw, 32px);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.operations-section {
+  margin-top: 24px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--paper));
+}
+
+.operations-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.operations-section h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.operations-section-heading p,
+.backup-runbook > p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.operations-section-heading > button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--sage);
+  border-radius: 9px;
+  background: var(--sage);
+  color: white;
+  font-weight: 700;
+}
+
+.operations-section-heading > button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.health-card {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+}
+
+.health-card > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.health-card > div > span {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #839089;
+}
+
+.health-card.status-healthy > div > span {
+  background: #2e8a58;
+}
+
+.health-card.status-warning > div > span {
+  background: #c47c16;
+}
+
+.health-card.status-error > div > span {
+  background: #c44545;
+}
+
+.health-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.health-metrics,
+.orphan-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.health-metrics > div,
+.orphan-summary > div {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.health-metrics dt,
+.orphan-summary dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.health-metrics dd,
+.orphan-summary dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
+.operations-notice {
+  margin: 14px 0 0;
+  padding: 11px 13px;
+  border-radius: 9px;
+  background: var(--cobalt-soft);
+  color: #254fae;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.orphan-results {
+  margin-top: 14px;
+}
+
+.orphan-results > p {
+  margin: 0;
+  color: #75551b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.orphan-results ul {
+  max-height: 250px;
+  overflow-y: auto;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.orphan-results li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.orphan-results code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.orphan-results li > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.backup-runbook {
+  display: grid;
+  gap: 10px;
+}
+
+.backup-runbook > p {
+  margin: 0;
+}
+
+.backup-runbook > code {
+  overflow-x: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #1f2924;
+  color: #eff8f1;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .operations-modal {
+    max-height: 94vh;
+    border-radius: 16px;
+  }
+
+  .operations-section {
+    padding: 16px;
+  }
+
+  .operations-section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .operations-section-heading > button {
+    width: 100%;
+  }
+
+  .health-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .health-metrics,
+  .orphan-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .orphan-results li {
+    flex-direction: column;
+    gap: 4px;
+  }
+}

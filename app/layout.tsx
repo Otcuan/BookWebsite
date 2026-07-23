@@ -5,7 +5,9 @@ import "./edit-book.css";
 import "./mobile-pdf-reader.css";
 import "./pdf-tools.css";
 import "./background-music.css";
+import "./operations-dashboard.css";
 import { BackgroundMusic } from "./background-music";
+import { ServiceWorkerRegistration } from "./service-worker-registration";
 
 export const metadata: Metadata = {
   title: "Tủ sách của Tuấn",
@@ -14,6 +16,12 @@ export const metadata: Metadata = {
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
+    apple: "/pwa-icon-192.png",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Tủ sách của Tuấn",
   },
 };
 
@@ -23,6 +31,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         {children}
         <BackgroundMusic />
+        <ServiceWorkerRegistration />
       </body>
     </html>
   );
